@@ -7,9 +7,9 @@ shows it in a window with charts.
 ## What it tracks (per level, plus combined totals)
 
 - **Combat** — time spent in combat.
-- **Travel** — time spent actually moving: running on foot, riding a mount, or
-  on a taxi / flight path. Standing still (including sitting on a mount) does
-  **not** count as travel (it counts as idle).
+- **Travel** — time spent actually moving: running on foot, riding a mount, using a
+  travel form (Ghost Wolf, Travel/Aquatic/Flight Form), or on a taxi / flight path.
+  Standing still (including sitting on a mount) does **not** count as travel (it counts as idle).
 - **AFK** — time spent flagged away-from-keyboard.
 - **Other** — all remaining active (logged-in, in-world) time.
 - **Grouped** — time spent in a party or raid (tracked independently; you can be
@@ -19,7 +19,7 @@ shows it in a window with charts.
 - **Dungeons** — 5-man dungeons completed (see note below).
 
 The first four are mutually exclusive: each second of online time is charged to
-exactly one, by priority `Mounted/taxi travel > Combat > AFK > On-foot travel >
+exactly one, by priority `Mounted/form/taxi travel > Combat > AFK > On-foot travel >
 Other`, so they never double-count and always add up to that level's total
 time. Mounted or flight-path travel outranks combat, so moving on a mount (or
 on a flight path) while flagged in combat is counted as travel. On foot, combat

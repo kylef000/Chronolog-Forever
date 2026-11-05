@@ -76,6 +76,10 @@ local function IsSecret(v)
   return issecretvalue and issecretvalue(v) or false
 end
 
+-- Shapeshift form IDs that act as mounts: Travel, Aquatic, Ghost Wolf, and the
+-- druid Flight / Swift Flight forms.
+local TRAVEL_FORMS = { [3] = true, [4] = true, [16] = true, [27] = true, [29] = true }
+
 -- nil for secret values, otherwise the value itself.
 local function Clean(v)
   if IsSecret(v) then return nil end
@@ -188,7 +192,9 @@ ticker:SetScript("OnUpdate", function(_, elapsed)
   -- secret value throws, and doing so after bumping `total` would leave time
   -- charged to no bucket.
   local onTaxi = Clean(UnitOnTaxi("player"))
-  local mounted = Clean(IsMounted())
+  local formID = GetShapeshiftFormID and Clean(GetShapeshiftFormID())
+  -- Travel-type forms (Ghost Wolf, Travel Form, ...) count like a mount.
+  local mounted = Clean(IsMounted()) or (formID and TRAVEL_FORMS[formID]) or false
   local speed = Clean(GetUnitSpeed("player"))
   local moving = nil -- unknown while the speed is secret
   if speed ~= nil then moving = speed > 0 end
@@ -199,7 +205,8 @@ ticker:SetScript("OnUpdate", function(_, elapsed)
   row.total = row.total + dt
 
   if onTaxi or (mounted and moving ~= false) then
-    -- Travel takes priority over combat: on a flight path, or mounted AND
+    -- Travel takes priority over combat: on a flight path, or mounted (or in
+    -- a travel form) AND
     -- actually moving, is counted as travel even if the combat flag is set.
     -- Sitting still on a mount is not travel; it falls through below. If the
     -- speed is unknown (secret), a mounted player is assumed to be moving.
