@@ -1,12 +1,18 @@
 ## Interface: 16001
 ## Title: Chronolog-Forever
-## Notes: Tracks per-level time in combat, traveling, and AFK, plus mobs killed, with a stats window and charts.
+## Notes: Tracks per-level time (combat, travel, AFK, dead), kills, XP, gold and zones, with a stats window, charts, widget and export.
 ## Author: Me and my pal Claude
-## Version: 1.0
+## Version: 1.1
 ## OptionalDeps: EllesmereUI
-## SavedVariablesPerCharacter: ChronologDB
+## SavedVariables: ChronologAccountDB
+## SavedVariablesPerCharacter: ChronologForeverDB, ChronologDB
 
 Core.lua
 Skin.lua
+Common.lua
+Views.lua
 UI.lua
 Widget.lua
+Export.lua
+Minimap.lua
+Settings.lua
