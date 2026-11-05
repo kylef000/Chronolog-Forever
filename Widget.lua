@@ -65,7 +65,7 @@ local function ShowTooltip(self)
 end
 
 local function BuildWidget()
-  widget = CreateFrame("Frame", "ChronologWidget", UIParent)
+  widget = CreateFrame("Frame", "ChronologWidget", UIParent, ns.BACKDROP_TEMPLATE)
   widget:SetWidth(180)
   widget:SetHeight(88)
   widget:SetFrameStrata("MEDIUM")

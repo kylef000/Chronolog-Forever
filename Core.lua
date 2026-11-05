@@ -1,7 +1,7 @@
 --[[
   Chronolog - Core
   ----------------
-  Tracks, per character level:
+  Tracks, per character level (WoW Forever):
     * combat  - time spent in combat
     * travel  - time spent mounted or on a taxi/flight path
     * afk     - time spent flagged AFK
@@ -21,9 +21,6 @@ local addonName, ns = ...
 local MAX_LEVEL = 60
 local TICK = 0.2 -- seconds between accumulation samples
 
--- COMBATLOG_OBJECT_TYPE_PLAYER: used to tell player kills (PvP) from mob kills.
-local OBJECT_TYPE_PLAYER = 0x00000400
-local band = bit.band
 
 local UnitLevel = UnitLevel
 local UnitGUID = UnitGUID
@@ -31,8 +28,6 @@ local UnitAffectingCombat = UnitAffectingCombat
 local UnitIsAFK = UnitIsAFK
 local IsMounted = IsMounted
 local UnitOnTaxi = UnitOnTaxi
-local GetNumRaidMembers = GetNumRaidMembers
-local GetNumPartyMembers = GetNumPartyMembers
 local IsInInstance = IsInInstance
 local GetUnitSpeed = GetUnitSpeed
 local GetTime = GetTime
@@ -64,6 +59,22 @@ ns.state = state
 ns.MAX_LEVEL = MAX_LEVEL
 
 local playerGUID
+
+--------------------------------------------------------------------------------
+-- WoW Forever (Midnight-based client) notes
+--   * COMBAT_LOG_EVENT_UNFILTERED is not available to addons, so kills are
+--     counted from the "<mob> dies, you gain N experience." chat line.
+--   * Chat payloads can be "secret" values that error if inspected.
+--------------------------------------------------------------------------------
+ns.BACKDROP_TEMPLATE = "BackdropTemplate"
+
+function ns.SetColor(tex, r, g, b, a)
+  tex:SetColorTexture(r, g, b, a)
+end
+
+local function IsSecret(v)
+  return issecretvalue and issecretvalue(v) or false
+end
 
 --------------------------------------------------------------------------------
 -- Data model
@@ -191,7 +202,7 @@ ticker:SetScript("OnUpdate", function(_, elapsed)
 
   -- Group time is tracked independently of the buckets above (you can be in a
   -- party while also in combat/travel/etc.).
-  if GetNumRaidMembers() > 0 or GetNumPartyMembers() > 0 then
+  if IsInGroup() or IsInRaid() then
     row.grouped = row.grouped + dt
   end
 end)
@@ -259,8 +270,20 @@ ev:RegisterEvent("PLAYER_ENTERING_WORLD")
 ev:RegisterEvent("PLAYER_LEVEL_UP")
 ev:RegisterEvent("PLAYER_REGEN_DISABLED")
 ev:RegisterEvent("PLAYER_REGEN_ENABLED")
-ev:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
 ev:RegisterEvent("LFG_COMPLETION_REWARD")
+ev:RegisterEvent("CHAT_MSG_COMBAT_XP_GAIN")
+
+-- Build a prefix pattern from the localized kill-XP format string.
+local KILL_XP_PATTERN
+do
+  local fmt = COMBATLOG_XPGAIN_FIRSTPERSON
+  if type(fmt) == "string" then
+    local pat = fmt:gsub("([%^%$%(%)%.%[%]%*%+%-%?%%])", "%%%1")
+    pat = pat:gsub("%%%%%d%%%$[sd]", ".+"):gsub("%%%%[sd]", ".+")
+    -- Only match the leading part so group/rested bonus suffixes still count.
+    KILL_XP_PATTERN = "^" .. (pat:match("^(.-%%%.)") or pat)
+  end
+end
 
 ev:SetScript("OnEvent", function(_, event, ...)
   if event == "PLAYER_LOGIN" then
@@ -302,21 +325,15 @@ ev:SetScript("OnEvent", function(_, event, ...)
   elseif event == "PLAYER_REGEN_ENABLED" then
     state.inCombat = false
 
-  elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
-    if not state.ready then return end
-    -- Fast path: the vast majority of combat-log events are not kills. Check the
-    -- subevent (arg #2) first and bail out before unpacking the rest.
-    if select(2, ...) ~= "PARTY_KILL" then return end
-    local _, _, sourceGUID, _, _, _, _, destFlags = ...
-    do
-      -- Only count kills credited to us or our pet, and only of non-players.
-      local mine = (sourceGUID == playerGUID) or (sourceGUID == UnitGUID("pet"))
-      local isPlayer = destFlags and band(destFlags, OBJECT_TYPE_PLAYER) ~= 0
-      if mine and not isPlayer then
-        local db = ChronologDB
-        if db then
-          GetRow(db, state.currentLevel).kills = GetRow(db, state.currentLevel).kills + 1
-        end
+  elseif event == "CHAT_MSG_COMBAT_XP_GAIN" then
+    if not state.ready or not KILL_XP_PATTERN then return end
+    local msg = ...
+    if type(msg) ~= "string" or IsSecret(msg) then return end
+    if msg:find(KILL_XP_PATTERN) then
+      local db = ChronologDB
+      if db then
+        local row = GetRow(db, state.currentLevel)
+        row.kills = row.kills + 1
       end
     end
   end

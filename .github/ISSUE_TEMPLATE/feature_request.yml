@@ -1,5 +1,5 @@
 name: Feature request
-description: Suggest an idea or improvement for Chronolog.
+description: Suggest an idea or improvement for Chronolog-Forever.
 title: "[Feature]: "
 labels: ["enhancement"]
 body:
@@ -33,7 +33,7 @@ body:
     id: solution
     attributes:
       label: Proposed solution
-      description: Describe what you'd like Chronolog to do.
+      description: Describe what you'd like Chronolog-Forever to do.
     validations:
       required: true
 
