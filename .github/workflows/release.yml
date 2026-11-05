@@ -24,7 +24,7 @@ jobs:
           # Stage the addon inside a "Chronolog-Forever" folder so the zip extracts
           # straight into the user's Interface/AddOns directory.
           mkdir -p "build/Chronolog-Forever"
-          cp Core.lua UI.lua Widget.lua Chronolog-Forever.toc README.md LICENSE "build/Chronolog-Forever/"
+          cp Core.lua Skin.lua UI.lua Widget.lua Chronolog-Forever.toc README.md LICENSE "build/Chronolog-Forever/"
 
           # Stamp the packaged .toc version to match the tag (without the
           # leading "v"), e.g. tag v1.2.0 -> "## Version: 1.2.0". The repo file

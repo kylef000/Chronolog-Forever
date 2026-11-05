@@ -97,7 +97,7 @@ local function BuildWidget()
 
   widget.title = widget:CreateFontString(nil, "OVERLAY", "GameFontNormal")
   widget.title:SetPoint("TOPLEFT", widget, "TOPLEFT", 10, -8)
-  widget.title:SetTextColor(1, 0.82, 0)
+  ns.TrackAccent(widget.title)
 
   widget.total = widget:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   widget.total:SetPoint("TOPRIGHT", widget, "TOPRIGHT", -10, -11)
@@ -138,6 +138,13 @@ local function BuildWidget()
       ns.RefreshWidget()
     end
   end)
+
+  -- EllesmereUI theme (no-op without it).
+  ns.WhenSkinned(function(S)
+    widget:SetBackdrop(nil)
+    S.Panel(widget)
+  end)
+  ns.SkinFonts(widget)
 end
 
 -- force = true/false to explicitly show/hide; omit to toggle.

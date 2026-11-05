@@ -3,8 +3,10 @@
 ## Notes: Tracks per-level time in combat, traveling, and AFK, plus mobs killed, with a stats window and charts.
 ## Author: Me and my pal Claude
 ## Version: 1.0
+## OptionalDeps: EllesmereUI
 ## SavedVariablesPerCharacter: ChronologDB
 
 Core.lua
+Skin.lua
 UI.lua
 Widget.lua
