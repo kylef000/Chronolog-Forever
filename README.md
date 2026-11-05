@@ -54,6 +54,16 @@ Hover any level row for a full breakdown. Both views refresh live.
 Only levels with at least 60 seconds of tracked time qualify for these two, so
 a level with a tiny sample can't show a misleading 100%.
 
+## EllesmereUI theme
+
+If [EllesmereUI](https://www.curseforge.com/wow/addons/ellesmereui) is loaded,
+the main window and widget are skinned through its skinning API: window and
+panel backdrop, close button, scrollbar, UI font and accent color all follow
+your current EllesmereUI theme, including live changes. It can be turned off
+per addon under EllesmereUI's *Blizzard Skins+ > Window Skins > Third-Party
+Addons*. Without EllesmereUI the stock Blizzard look is used. The level
+composition colors (combat/travel/AFK/other) are fixed on purpose.
+
 ## Notes
 
 - Data is stored per character (`ChronologDB`).

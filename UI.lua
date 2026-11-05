@@ -138,6 +138,8 @@ local function AcquireRow(index, parent)
     GameTooltip:Hide()
   end)
 
+  ns.SkinFonts(row)
+
   rows[index] = row
   return row
 end
@@ -162,25 +164,25 @@ function ns.Refresh()
   local kph = (hours > 0) and (t.kills / hours) or 0
 
   local sinceTxt = db.startLevel and ("Lv " .. db.startLevel) or "?"
-  summaryLines[1]:SetText("|cffffd200Tracked playtime:|r " .. FormatTime(t.total)
-    .. "   |cff888888(since " .. sinceTxt .. ")|r")
+  summaryLines[1]:SetText(ns.Gold("|cffffd200Tracked playtime:|r " .. FormatTime(t.total)
+    .. "   |cff888888(since " .. sinceTxt .. ")|r"))
   summaryLines[2]:SetText(string.format("|cffd94c4cCombat|r %s (%s)   |cff4c8cf2Travel|r %s (%s)",
     FormatTime(t.combat), pct(t.combat, t.total), FormatTime(t.travel), pct(t.travel, t.total)))
   summaryLines[3]:SetText(string.format("|cff9a9a9aAFK|r %s (%s)   |cff66bf72Other|r %s (%s)",
     FormatTime(t.afk), pct(t.afk, t.total), FormatTime(t.other), pct(t.other, t.total)))
-  summaryLines[4]:SetText(string.format(
+  summaryLines[4]:SetText(ns.Gold(string.format(
     "|cffffd200Mobs killed:|r %d   |cffffd200Quests:|r %d   |cffffd200Dungeons:|r %d",
-    t.kills, t.quests, t.dungeons))
+    t.kills, t.quests, t.dungeons)))
 
-  summaryLines[5]:SetText(string.format(
+  summaryLines[5]:SetText(ns.Gold(string.format(
     "|cffffd200Grouped:|r %s (%s)   |cff888888%.1f kills/hr|r",
-    FormatTime(t.grouped), pct(t.grouped, t.total), kph))
+    FormatTime(t.grouped), pct(t.grouped, t.total), kph)))
 
   local busy = agg.busiestLevel
     and string.format("Lv %d (%.0f%% combat)", agg.busiestLevel, (agg.busiestRatio or 0) * 100) or "-"
   local lazy = agg.laziestLevel
     and string.format("Lv %d (%.0f%% idle)", agg.laziestLevel, (agg.laziestRatio or 0) * 100) or "-"
-  summaryLines[6]:SetText("|cffffd200Busiest:|r " .. busy .. "   |cffffd200Laziest:|r " .. lazy)
+  summaryLines[6]:SetText(ns.Gold("|cffffd200Busiest:|r " .. busy .. "   |cffffd200Laziest:|r " .. lazy))
 
   -- Aggregate composition bar
   UpdateStackedBar(frame.aggBar, { t.combat, t.travel, t.afk, t.other }, frame.aggBar.width)
@@ -228,6 +230,7 @@ local function CreateLegendSwatch(parent, index, anchorTo)
   sw:SetHeight(10)
   local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
   fs:SetText(LABELS[index])
+  ns.TrackAccent(fs)
   if anchorTo then
     sw:SetPoint("LEFT", anchorTo, "RIGHT", 12, 0)
   else
@@ -298,7 +301,8 @@ local function BuildWindow()
   -- Aggregate composition bar + legend
   local aggLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
   aggLabel:SetPoint("TOPLEFT", summaryLines[6], "BOTTOMLEFT", 0, -12)
-  aggLabel:SetText("|cffffd200Overall composition|r")
+  aggLabel:SetText("Overall composition")
+  ns.TrackAccent(aggLabel)
 
   local aggBar = CreateStackedBar(frame, 20)
   aggBar:SetPoint("TOPLEFT", aggLabel, "BOTTOMLEFT", 0, -4)
@@ -338,24 +342,29 @@ local function BuildWindow()
   local hdr = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
   hdr:SetPoint("TOPLEFT", swatchHolder, "BOTTOMLEFT", 2, -10)
   hdr:SetText("Lvl")
+  ns.TrackAccent(hdr)
   local hdrBar = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
   hdrBar:SetPoint("LEFT", hdr, "LEFT", 46, 0)
   hdrBar:SetText("Time composition")
+  ns.TrackAccent(hdrBar)
   local hdrKills = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
   hdrKills:SetPoint("LEFT", hdr, "LEFT", 46 + ROW_BAR_W + 10, 0)
   hdrKills:SetWidth(52)
   hdrKills:SetJustifyH("RIGHT")
   hdrKills:SetText("Kills")
+  ns.TrackAccent(hdrKills)
   local hdrQuests = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
   hdrQuests:SetPoint("LEFT", hdrKills, "RIGHT", 10, 0)
   hdrQuests:SetWidth(52)
   hdrQuests:SetJustifyH("RIGHT")
   hdrQuests:SetText("Quests")
+  ns.TrackAccent(hdrQuests)
   local hdrTime = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
   hdrTime:SetPoint("LEFT", hdrQuests, "RIGHT", 10, 0)
   hdrTime:SetWidth(90)
   hdrTime:SetJustifyH("RIGHT")
   hdrTime:SetText("Total")
+  ns.TrackAccent(hdrTime)
 
   -- Scroll list
   local scroll = CreateFrame("ScrollFrame", "ChronologScroll", frame, "UIPanelScrollFrameTemplate")
@@ -390,6 +399,15 @@ local function BuildWindow()
       ns.Refresh()
     end
   end)
+
+  -- EllesmereUI theme (no-op without it).
+  ns.WhenSkinned(function(S)
+    frame:SetBackdrop(nil) -- drop the Blizzard dialog art; Shell paints the theme
+    S.Shell(frame)
+    S.CloseButton(close)
+    S.ScrollBar(scroll.ScrollBar or _G["ChronologScrollScrollBar"])
+  end)
+  ns.SkinFonts(frame)
 end
 
 function ns.ToggleWindow()
