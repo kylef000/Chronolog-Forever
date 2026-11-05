@@ -3,14 +3,14 @@
   ----------------
   Tracks, per character level (WoW Forever):
     * combat  - time spent in combat
-    * travel  - time spent mounted or on a taxi/flight path
+    * travel  - time spent moving (on foot, mounted, or on a taxi/flight path)
     * afk     - time spent flagged AFK
     * other   - all remaining active (logged-in, in-world) time
     * total   - combat + travel + afk + other (all measured online time)
     * kills   - mobs (non-player units) that died to you or your pet
 
   Time is bucketed by a throttled OnUpdate ticker. Each tick is charged to a
-  single category by priority (combat > travel > afk > other) so the buckets
+  single category by priority (mounted/taxi travel > combat > afk > on-foot travel > other) so the buckets
   never double-count and always sum to `total`.
 
   All state is stored per-character in the saved variable ChronologDB.
@@ -208,6 +208,9 @@ ticker:SetScript("OnUpdate", function(_, elapsed)
     row.combat = row.combat + dt
   elseif afk then
     row.afk = row.afk + dt
+  elseif moving then
+    -- Moving on foot (out of combat) also counts as travel.
+    row.travel = row.travel + dt
   else
     row.other = row.other + dt
     -- Idle = not travelling, not fighting, not AFK, and known to be standing
