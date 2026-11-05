@@ -76,6 +76,12 @@ local function IsSecret(v)
   return issecretvalue and issecretvalue(v) or false
 end
 
+-- nil for secret values, otherwise the value itself.
+local function Clean(v)
+  if IsSecret(v) then return nil end
+  return v
+end
+
 --------------------------------------------------------------------------------
 -- Data model
 --------------------------------------------------------------------------------
@@ -177,25 +183,36 @@ ticker:SetScript("OnUpdate", function(_, elapsed)
   local db = ChronologDB
   if not db then return end
 
+  -- Read every unit query up front and treat "secret" results (the client
+  -- hides some values during combat) as unknown. Comparing or testing a
+  -- secret value throws, and doing so after bumping `total` would leave time
+  -- charged to no bucket.
+  local onTaxi = Clean(UnitOnTaxi("player"))
+  local mounted = Clean(IsMounted())
+  local speed = Clean(GetUnitSpeed("player"))
+  local moving = nil -- unknown while the speed is secret
+  if speed ~= nil then moving = speed > 0 end
+  local fighting = state.inCombat or Clean(UnitAffectingCombat("player"))
+  local afk = Clean(UnitIsAFK("player"))
+
   local row = GetRow(db, state.currentLevel)
   row.total = row.total + dt
 
-  local moving = (GetUnitSpeed("player") or 0) > 0
-
-  if UnitOnTaxi("player") or (IsMounted() and moving) then
+  if onTaxi or (mounted and moving ~= false) then
     -- Travel takes priority over combat: on a flight path, or mounted AND
     -- actually moving, is counted as travel even if the combat flag is set.
-    -- Sitting still on a mount is not travel; it falls through below.
+    -- Sitting still on a mount is not travel; it falls through below. If the
+    -- speed is unknown (secret), a mounted player is assumed to be moving.
     row.travel = row.travel + dt
-  elseif state.inCombat or UnitAffectingCombat("player") then
+  elseif fighting then
     row.combat = row.combat + dt
-  elseif UnitIsAFK("player") then
+  elseif afk then
     row.afk = row.afk + dt
   else
     row.other = row.other + dt
-    -- Idle = not travelling, not fighting, not AFK, and standing still
-    -- (this includes sitting on a mount without moving).
-    if not moving then
+    -- Idle = not travelling, not fighting, not AFK, and known to be standing
+    -- still (this includes sitting on a mount without moving).
+    if moving == false then
       row.idle = row.idle + dt
     end
   end
