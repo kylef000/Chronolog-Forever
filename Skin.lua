@@ -26,6 +26,9 @@ local function AccentRGB()
   return 1, 0.82, 0 -- stock Blizzard gold
 end
 
+-- r, g, b of the current accent (EllesmereUI's when skinned, else gold).
+function ns.GetAccent() return AccentRGB() end
+
 local function Hex2(v) return string.format("%02x", math.floor(v * 255 + 0.5)) end
 
 function ns.AccentHex()

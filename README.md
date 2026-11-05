@@ -1,84 +1,107 @@
 # Chronolog-Forever
 
-A lightweight playtime tracker for **WoW Forever** (the Midnight-based client). It records,
-**per character level**, how you spend your time and how much you kill, then
-shows it in a window with charts.
+A lightweight playtime tracker for **WoW Forever** (the Midnight-based client).
+It records, **per character level**, how you spend your time and what you
+earn, then shows it in a window with a level list, a zone breakdown and charts.
 
 ## What it tracks (per level, plus combined totals)
 
+Five **mutually exclusive time buckets** that always add up to the level's
+total time:
+
 - **Combat** — time spent in combat.
-- **Travel** — time spent actually moving: running on foot, riding a mount, using a
-  travel form (Ghost Wolf, Travel/Aquatic/Flight Form), or on a taxi / flight path.
-  Standing still (including sitting on a mount) does **not** count as travel (it counts as idle).
+- **Travel** — time spent actually moving: running on foot, riding a mount, using
+  a travel form (Ghost Wolf, Travel/Aquatic/Flight Form), or on a taxi / flight
+  path. Standing still (including sitting on a mount) is **not** travel; it
+  counts as idle.
 - **AFK** — time spent flagged away-from-keyboard.
-- **Other** — all remaining active (logged-in, in-world) time.
-- **Grouped** — time spent in a party or raid (tracked independently; you can be
-  grouped *and* in combat, so this overlaps the four buckets above).
-- **Mobs killed** — non-player units killed by you or your pet.
-- **Quests** — quests turned in (hooks `GetQuestReward`).
-- **Dungeons** — 5-man dungeons completed (see note below).
+- **Dead** — time spent dead or running back as a ghost.
+- **Other** — all remaining active time ("idle" is the part of it spent standing
+  still).
 
-The first four are mutually exclusive: each second of online time is charged to
-exactly one, by priority `Mounted/form/taxi travel > Combat > AFK > On-foot travel >
-Other`, so they never double-count and always add up to that level's total
-time. Mounted or flight-path travel outranks combat, so moving on a mount (or
-on a flight path) while flagged in combat is counted as travel. On foot, combat
-wins, so fighting while moving counts as combat. (While in combat the client
-hides your speed, so only mounts and taxis can be detected as travel there.) Grouped time, kills, quests and dungeons are
-separate counters.
+Each second is charged to exactly one bucket, by priority
+`Dead > Mounted/form/taxi travel > Combat > AFK > On-foot travel > Other`.
+Mounted or flight-path travel outranks combat; on foot, combat wins. While in
+combat the client hides your speed, so only mounts, travel forms and taxis can
+be detected as travel there.
 
-Per-level values for grouped time, quests and dungeons show in each row's hover
-tooltip; the table columns show kills and quests, and the header shows totals.
+Separate counters (these can overlap the buckets):
 
-When a character has no saved data yet, Chronolog-Forever seeds one row for every level
-from your **current level up to 60**. As you level up, new time and kills flow
-into the new level's row automatically.
+- **Grouped** — time in a party or raid.
+- **Professions window open** — time the professions window is open (crafting).
+  Gathering is not detected.
+- **Loading screens** — time spent loading. This is **not** part of the total.
+- **Mobs killed**, **Quests** turned in, **Dungeons** completed (see notes),
+  **Deaths**, **XP gained**, **Gold gained / spent**.
+- **Zones** — seconds spent in each zone.
 
-## Usage
+When a character has no saved data yet, Chronolog-Forever seeds one row for every
+level from your **current level up to 60** (Forever's level cap).
 
-- `/chrono` or `/chronolog` — open/close the main window (drag to move; its
-  position is remembered between sessions).
-- `/chrono widget` — toggle a small standalone box showing the **current level's**
-  stats. Drag to move (position saved), right-click to hide, hover for a full
-  breakdown. It remembers whether it was shown between sessions.
-- `/chrono reset` — asks for confirmation; `/chrono reset yes` wipes all data
-  and restarts tracking from your current level (widget position is kept).
+## The window (`/chrono`)
 
-Hover any level row for a full breakdown. Both views refresh live.
+- **Character selector** (top left): switch between this character, your other
+  characters, and **All characters** combined. Other characters appear after you
+  have logged them in once with this addon.
+- **Headline stats**: time per bucket, kills/quests/dungeons/deaths, grouped and
+  crafting time, XP and gold with per-hour rates, and your busiest/laziest level.
+- **Levels tab**: a row per level with its composition bar. Hover a row for the
+  full breakdown, a comparison against your average level (combat share,
+  kills/hr, XP/hr, gold/hr) and that level's top zones.
+- **Zones tab**: time per zone, biggest first.
+- **Charts tab**: one bar per level for a metric you cycle with the button
+  (time played, combat %, travel %, kills, kills/hr, XP/hr, gold/hr, deaths).
 
-## Headline stats
+**Busiest level** is the level with the highest share of its time in combat;
+**laziest** has the highest share AFK or idle. Only levels with at least 60
+seconds of tracked time qualify for these and for per-hour rates.
 
-- **Busiest level** — the level with the highest *proportion* of its time spent
-  in combat (combat ÷ total).
-- **Laziest level** — the highest proportion spent AFK or standing idle
-  ((afk + idle) ÷ total), where "idle" means not fighting, not travelling, not
-  AFK, and standing still (including sitting on a mount without moving).
+## Commands
 
-Only levels with at least 60 seconds of tracked time qualify for these two, so
-a level with a tiny sample can't show a misleading 100%.
+| Command | What it does |
+|---|---|
+| `/chrono` | Open/close the main window (drag to move; position is remembered). |
+| `/chrono widget` | Toggle the small current-level widget (drag to move, right-click to hide). |
+| `/chrono widget scale <0.5-2>` | Widget size. |
+| `/chrono widget alpha <0.2-1>` | Widget opacity. |
+| `/chrono widget stat <name>` | Toggle a widget stat: `kills quests dungeons grouped deaths kph xph gph crafting dead`. |
+| `/chrono minimap` | Show/hide the minimap button (left-click: window, right-click: widget, drag to move). |
+| `/chrono export` | Copy your data as CSV (per level, and per level and zone). |
+| `/chrono options` | Open the settings page in EllesmereUI (if installed). |
+| `/chrono debug` | Print tracking diagnostics (form ID, speed, mounted state, last XP line, ...). |
+| `/chrono reset` | Asks for confirmation; `/chrono reset yes` wipes this character's data (settings are kept). |
 
-## EllesmereUI theme
+A LibDataBroker launcher is also registered when LibDataBroker is available.
 
-If [EllesmereUI](https://www.curseforge.com/wow/addons/ellesmereui) is loaded,
-the main window and widget are skinned through its skinning API: window and
-panel backdrop, close button, scrollbar, UI font and accent color all follow
-your current EllesmereUI theme, including live changes. It can be turned off
-per addon under EllesmereUI's *Blizzard Skins+ > Window Skins > Third-Party
-Addons*. Without EllesmereUI the stock Blizzard look is used. The level
-composition colors (combat/travel/AFK/other) are fixed on purpose.
+## EllesmereUI integration
+
+If [EllesmereUI](https://www.curseforge.com/wow/addons/ellesmereui) is loaded:
+
+- The windows and widget are skinned through its skinning API (backdrop,
+  buttons, close button, scrollbar, UI font, accent color), including live theme
+  changes. This can be turned off per addon under *Blizzard Skins+ > Window
+  Skins > Third-Party Addons*. The bucket colors are fixed on purpose.
+- A **Chronolog-Forever** section appears in EllesmereUI's options with the
+  widget settings (show, scale, opacity, which stats) and general options.
+
+Without EllesmereUI the stock Blizzard look is used and everything is available
+through the slash commands.
 
 ## Notes
 
-- Data is stored per character (`ChronologDB`).
-- No external libraries. Targets the WoW Forever client (interface 16001). Safe to keep across launcher re-syncs
-  since it is its own addon folder.
-- Addons can't read the combat log on Forever, so kills are counted from the
-  "<mob> dies, you gain N experience" chat line. Only XP-granting kills count
-  (not grey mobs, and nothing at level 60), and kills by group members that
-  award you XP are included. Install into
-  `World of Warcraft/_forever_/Interface/AddOns/Chronolog-Forever`.
-- Dungeon completion is credited when the Dungeon Finder fires
-  `LFG_COMPLETION_REWARD`, or — for manual runs that don't use the finder — when
-  you leave a 5-man instance after being inside at least 4 minutes. The two are
-  de-duplicated so a single run counts once. It's a heuristic: a long partial
-  run you abandon may count, and a sub-4-minute manual clear may not.
+- Install into `World of Warcraft/_forever_/Interface/AddOns/Chronolog-Forever`.
+  Targets the WoW Forever client (interface 16001).
+- Data is stored per character (`ChronologForeverDB`), and mirrored into an
+  account-wide `ChronologAccountDB` for the character selector. Data saved by
+  earlier versions (`ChronologDB`) is migrated automatically on first login.
+- **Kill counting.** Addons can't read the combat log on Forever, so:
+  below level 60 a kill is counted from the "<mob> dies, you gain N experience"
+  chat line (grey mobs give no XP and aren't counted; kills by group members
+  that give you XP are); at level 60, where there is no XP, a **targeted**
+  hostile that dies after you saw it in combat is counted (area kills of mobs
+  you never target are missed).
+- **Dungeons** are credited when the Dungeon Finder fires
+  `LFG_COMPLETION_REWARD`, or, for manual runs, when you leave a 5-man instance
+  after at least 4 minutes inside. The two are de-duplicated. It's a heuristic.
+- Some client values are hidden ("secret") during combat; Chronolog-Forever
+  treats those as unknown instead of erroring.

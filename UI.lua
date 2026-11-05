@@ -1,80 +1,31 @@
 --[[
-  Chronolog - UI
-  --------------
-  A movable window showing:
-    * headline stats about your tracked playtime
-    * an aggregate stacked composition bar (combat/travel/afk/other)
-    * a scrollable per-level list, each row with its own stacked bar,
-      kill count and total time, plus a detailed hover tooltip.
+  Chronolog-Forever - UI
+  ----------------------
+  The main window:
+    * a character selector (this character / others / all)
+    * headline stats and an overall composition bar
+    * three tabs: Levels (per-level list), Zones, Charts
 ]]
 
 local addonName, ns = ...
 
 local FormatTime = ns.FormatTime
-
--- Category colors, order: combat, travel, afk, other.
-local COLORS = {
-  { 0.85, 0.30, 0.30 }, -- combat  (red)
-  { 0.30, 0.55, 0.95 }, -- travel  (blue)
-  { 0.60, 0.60, 0.62 }, -- afk     (gray)
-  { 0.40, 0.75, 0.45 }, -- other   (green)
-}
-local LABELS = { "Combat", "Travel", "AFK", "Other" }
+local COLORS, LABELS = ns.COLORS, ns.LABELS
 
 local ROW_H = 20
 local ROW_BAR_W = 170
+local NUM_SUMMARY = 7
 
 local frame -- main window
 local rows = {} -- pooled per-level row frames
 local summaryLines = {}
+local views = {} -- tab id -> view frame (with Refresh)
+local tabButtons = {}
+local currentTab = "levels"
+local lastAgg
 
 --------------------------------------------------------------------------------
--- Stacked bar helper
---------------------------------------------------------------------------------
-local function CreateStackedBar(parent, height)
-  local bar = CreateFrame("Frame", nil, parent)
-  bar:SetHeight(height)
-  bar.bg = bar:CreateTexture(nil, "BACKGROUND")
-  bar.bg:SetAllPoints(true)
-  ns.SetColor(bar.bg, 0, 0, 0, 0.35)
-  bar.segs = {}
-  for i = 1, 4 do
-    local t = bar:CreateTexture(nil, "ARTWORK")
-    local c = COLORS[i]
-    ns.SetColor(t, c[1], c[2], c[3], 1)
-    bar.segs[i] = t
-  end
-  return bar
-end
-
--- vals = {combat, travel, afk, other}
-local function UpdateStackedBar(bar, vals, width)
-  local sum = (vals[1] or 0) + (vals[2] or 0) + (vals[3] or 0) + (vals[4] or 0)
-  local x = 0
-  for i = 1, 4 do
-    local seg = bar.segs[i]
-    local w = (sum > 0) and (vals[i] / sum) * width or 0
-    seg:ClearAllPoints()
-    if w > 0.5 then
-      seg:SetPoint("TOPLEFT", bar, "TOPLEFT", x, 0)
-      seg:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", x, 0)
-      seg:SetWidth(w)
-      seg:Show()
-      x = x + w
-    else
-      seg:Hide()
-    end
-  end
-end
-
--- Shared with Widget.lua
-ns.CreateStackedBar = CreateStackedBar
-ns.UpdateStackedBar = UpdateStackedBar
-ns.COLORS = COLORS
-ns.LABELS = LABELS
-
---------------------------------------------------------------------------------
--- Row pool
+-- Row pool (Levels tab)
 --------------------------------------------------------------------------------
 local function AcquireRow(index, parent)
   local row = rows[index]
@@ -89,7 +40,7 @@ local function AcquireRow(index, parent)
   row.level:SetWidth(40)
   row.level:SetJustifyH("LEFT")
 
-  row.bar = CreateStackedBar(row, ROW_H - 6)
+  row.bar = ns.CreateStackedBar(row, ROW_H - 6)
   row.bar:SetPoint("LEFT", row, "LEFT", 46, 0)
   row.bar:SetWidth(ROW_BAR_W)
 
@@ -120,17 +71,7 @@ local function AcquireRow(index, parent)
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
     GameTooltip:AddLine("Level " .. d.lvl, 1, 1, 1)
     GameTooltip:AddLine(" ")
-    GameTooltip:AddDoubleLine("Combat", FormatTime(d.row.combat), COLORS[1][1], COLORS[1][2], COLORS[1][3], 1, 1, 1)
-    GameTooltip:AddDoubleLine("Travel", FormatTime(d.row.travel), COLORS[2][1], COLORS[2][2], COLORS[2][3], 1, 1, 1)
-    GameTooltip:AddDoubleLine("AFK", FormatTime(d.row.afk), COLORS[3][1], COLORS[3][2], COLORS[3][3], 1, 1, 1)
-    GameTooltip:AddDoubleLine("Other", FormatTime(d.row.other), COLORS[4][1], COLORS[4][2], COLORS[4][3], 1, 1, 1)
-    GameTooltip:AddLine(" ")
-    GameTooltip:AddDoubleLine("Total time", FormatTime(d.row.total), 0.8, 0.8, 0.8, 1, 1, 1)
-    GameTooltip:AddDoubleLine("Grouped", FormatTime(d.row.grouped or 0), 0.8, 0.8, 0.8, 1, 1, 1)
-    GameTooltip:AddLine(" ")
-    GameTooltip:AddDoubleLine("Mobs killed", tostring(d.row.kills), 0.8, 0.8, 0.8, 1, 1, 1)
-    GameTooltip:AddDoubleLine("Quests turned in", tostring(d.row.quests or 0), 0.8, 0.8, 0.8, 1, 1, 1)
-    GameTooltip:AddDoubleLine("Dungeons completed", tostring(d.row.dungeons or 0), 0.8, 0.8, 0.8, 1, 1, 1)
+    ns.AddBreakdown(GameTooltip, d.row, d.avg)
     GameTooltip:Show()
   end)
   row:SetScript("OnLeave", function(self)
@@ -152,52 +93,25 @@ local function pct(part, whole)
   return string.format("%.0f%%", part / whole * 100)
 end
 
-function ns.Refresh()
-  if not frame or not frame:IsShown() then return end
+local function SourceLabel(source)
+  for _, s in ipairs(ns.GetSources()) do
+    if s.id == source then return s.label end
+  end
+  return "This character"
+end
 
-  local agg = ns.GetAggregate()
-  local t = agg.totals
-  local db = agg.db
-
-  -- Headline summary lines
-  local hours = t.total / 3600
-  local kph = (hours > 0) and (t.kills / hours) or 0
-
-  local sinceTxt = db.startLevel and ("Lv " .. db.startLevel) or "?"
-  summaryLines[1]:SetText(ns.Gold("|cffffd200Tracked playtime:|r " .. FormatTime(t.total)
-    .. "   |cff888888(since " .. sinceTxt .. ")|r"))
-  summaryLines[2]:SetText(string.format("|cffd94c4cCombat|r %s (%s)   |cff4c8cf2Travel|r %s (%s)",
-    FormatTime(t.combat), pct(t.combat, t.total), FormatTime(t.travel), pct(t.travel, t.total)))
-  summaryLines[3]:SetText(string.format("|cff9a9a9aAFK|r %s (%s)   |cff66bf72Other|r %s (%s)",
-    FormatTime(t.afk), pct(t.afk, t.total), FormatTime(t.other), pct(t.other, t.total)))
-  summaryLines[4]:SetText(ns.Gold(string.format(
-    "|cffffd200Mobs killed:|r %d   |cffffd200Quests:|r %d   |cffffd200Dungeons:|r %d",
-    t.kills, t.quests, t.dungeons)))
-
-  summaryLines[5]:SetText(ns.Gold(string.format(
-    "|cffffd200Grouped:|r %s (%s)   |cff888888%.1f kills/hr|r",
-    FormatTime(t.grouped), pct(t.grouped, t.total), kph)))
-
-  local busy = agg.busiestLevel
-    and string.format("Lv %d (%.0f%% combat)", agg.busiestLevel, (agg.busiestRatio or 0) * 100) or "-"
-  local lazy = agg.laziestLevel
-    and string.format("Lv %d (%.0f%% idle)", agg.laziestLevel, (agg.laziestRatio or 0) * 100) or "-"
-  summaryLines[6]:SetText(ns.Gold("|cffffd200Busiest:|r " .. busy .. "   |cffffd200Laziest:|r " .. lazy))
-
-  -- Aggregate composition bar
-  UpdateStackedBar(frame.aggBar, { t.combat, t.travel, t.afk, t.other }, frame.aggBar.width)
-
-  -- Per-level list
-  local content = frame.content
+local function RefreshLevels(agg)
+  local view = views.levels
+  local content = view.content
   local levels = agg.levels
-  local width = frame.scroll:GetWidth()
+  local width = view.scroll:GetWidth()
   if width and width > 0 then content:SetWidth(width) end
 
-  local currentLevel = ns.state.currentLevel
+  local currentLevel = (agg.source == nil) and ns.state.currentLevel or nil
   for i, lvl in ipairs(levels) do
     local row = AcquireRow(i, content)
-    local data = db.levels[lvl]
-    row.data = { lvl = lvl, row = data }
+    local data = agg.rows[lvl]
+    row.data = { lvl = lvl, row = data, avg = agg.avg }
     row:ClearAllPoints()
     row:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -(i - 1) * ROW_H)
     row:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, -(i - 1) * ROW_H)
@@ -207,9 +121,9 @@ function ns.Refresh()
     else
       row.level:SetText("Lv " .. lvl)
     end
-    UpdateStackedBar(row.bar, { data.combat, data.travel, data.afk, data.other }, ROW_BAR_W)
+    ns.UpdateStackedBar(row.bar, ns.RowValues(data), ROW_BAR_W)
     row.kills:SetText(data.kills > 0 and tostring(data.kills) or "|cff555555-|r")
-    row.quests:SetText((data.quests or 0) > 0 and tostring(data.quests) or "|cff555555-|r")
+    row.quests:SetText(data.quests > 0 and tostring(data.quests) or "|cff555555-|r")
     row.time:SetText(data.total > 0 and FormatTime(data.total) or "|cff555555-|r")
     row:Show()
   end
@@ -217,6 +131,76 @@ function ns.Refresh()
     rows[i]:Hide()
   end
   content:SetHeight(math.max(#levels * ROW_H, 1))
+end
+
+local function StyleTabs()
+  local r, g, b = ns.GetAccent()
+  for id, btn in pairs(tabButtons) do
+    local fs = btn:GetFontString()
+    if fs then
+      if id == currentTab then fs:SetTextColor(r, g, b) else fs:SetTextColor(1, 1, 1) end
+    end
+  end
+end
+
+function ns.Refresh()
+  if not frame or not frame:IsShown() then return end
+
+  local agg = ns.GetAggregate(ns.viewSource)
+  lastAgg = agg
+  local t = agg.totals
+
+  frame.charBtn:SetText("Character: " .. SourceLabel(ns.viewSource))
+
+  -- Headline summary lines
+  local hours = t.total / 3600
+  local kph = (hours > 0) and (t.kills / hours) or 0
+  local xph = (hours > 0) and (t.xp / hours) or 0
+  local gph = (hours > 0) and (t.gold / 10000 / hours) or 0
+
+  local sinceTxt = agg.startLevel and ("Lv " .. agg.startLevel) or "?"
+  summaryLines[1]:SetText(ns.Gold("|cffffd200Tracked playtime:|r " .. FormatTime(t.total)
+    .. "   |cff888888(since " .. sinceTxt .. ")|r"))
+  summaryLines[2]:SetText(string.format("%sCombat|r %s (%s)   %sTravel|r %s (%s)",
+    ns.ColorCode(1), FormatTime(t.combat), pct(t.combat, t.total),
+    ns.ColorCode(2), FormatTime(t.travel), pct(t.travel, t.total)))
+  summaryLines[3]:SetText(string.format("%sAFK|r %s (%s)   %sDead|r %s (%s)   %sOther|r %s (%s)",
+    ns.ColorCode(3), FormatTime(t.afk), pct(t.afk, t.total),
+    ns.ColorCode(5), FormatTime(t.dead), pct(t.dead, t.total),
+    ns.ColorCode(4), FormatTime(t.other), pct(t.other, t.total)))
+  summaryLines[4]:SetText(ns.Gold(string.format(
+    "|cffffd200Kills:|r %d   |cffffd200Quests:|r %d   |cffffd200Dungeons:|r %d   |cffffd200Deaths:|r %d",
+    t.kills, t.quests, t.dungeons, t.deaths)))
+  summaryLines[5]:SetText(ns.Gold(string.format(
+    "|cffffd200Grouped:|r %s (%s)   |cffffd200Crafting:|r %s   |cff888888%.1f kills/hr|r",
+    FormatTime(t.grouped), pct(t.grouped, t.total), FormatTime(t.crafting), kph)))
+  summaryLines[6]:SetText(ns.Gold(string.format(
+    "|cffffd200XP:|r %s |cff888888(%s/hr)|r   |cffffd200Gold:|r %s |cff888888(%.1fg/hr, %s spent)|r",
+    ns.FormatNumber(t.xp), ns.FormatNumber(xph), ns.FormatGold(t.gold), gph, ns.FormatGold(t.spent))))
+
+  local busy = agg.busiestLevel
+    and string.format("Lv %d (%.0f%% combat)", agg.busiestLevel, (agg.busiestRatio or 0) * 100) or "-"
+  local lazy = agg.laziestLevel
+    and string.format("Lv %d (%.0f%% idle)", agg.laziestLevel, (agg.laziestRatio or 0) * 100) or "-"
+  summaryLines[7]:SetText(ns.Gold("|cffffd200Busiest:|r " .. busy .. "   |cffffd200Laziest:|r " .. lazy))
+
+  -- Aggregate composition bar
+  ns.UpdateStackedBar(frame.aggBar, ns.RowValues(t), frame.aggBar.width)
+
+  StyleTabs()
+  if currentTab == "levels" then
+    RefreshLevels(agg)
+  else
+    views[currentTab].Refresh(agg)
+  end
+end
+
+local function SelectTab(id)
+  currentTab = id
+  for tabId, view in pairs(views) do
+    if tabId == id then view:Show() else view:Hide() end
+  end
+  ns.Refresh()
 end
 
 --------------------------------------------------------------------------------
@@ -240,9 +224,66 @@ local function CreateLegendSwatch(parent, index, anchorTo)
   return fs
 end
 
+local function BuildLevelsView(parent)
+  local view = CreateFrame("Frame", nil, parent)
+  view:SetAllPoints(parent)
+
+  -- Column headers (aligned to the row columns in AcquireRow)
+  local hdr = view:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  hdr:SetPoint("TOPLEFT", view, "TOPLEFT", 2, 0)
+  hdr:SetText("Lvl")
+  ns.TrackAccent(hdr)
+  local hdrBar = view:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  hdrBar:SetPoint("LEFT", hdr, "LEFT", 46, 0)
+  hdrBar:SetText("Time composition")
+  ns.TrackAccent(hdrBar)
+  local hdrKills = view:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  hdrKills:SetPoint("LEFT", hdr, "LEFT", 46 + ROW_BAR_W + 10, 0)
+  hdrKills:SetWidth(52)
+  hdrKills:SetJustifyH("RIGHT")
+  hdrKills:SetText("Kills")
+  ns.TrackAccent(hdrKills)
+  local hdrQuests = view:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  hdrQuests:SetPoint("LEFT", hdrKills, "RIGHT", 10, 0)
+  hdrQuests:SetWidth(52)
+  hdrQuests:SetJustifyH("RIGHT")
+  hdrQuests:SetText("Quests")
+  ns.TrackAccent(hdrQuests)
+  local hdrTime = view:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  hdrTime:SetPoint("LEFT", hdrQuests, "RIGHT", 10, 0)
+  hdrTime:SetWidth(90)
+  hdrTime:SetJustifyH("RIGHT")
+  hdrTime:SetText("Total")
+  ns.TrackAccent(hdrTime)
+
+  local scroll = CreateFrame("ScrollFrame", "ChronologScroll", view, "UIPanelScrollFrameTemplate")
+  scroll:SetPoint("TOPLEFT", hdr, "BOTTOMLEFT", -2, -6)
+  scroll:SetPoint("BOTTOMRIGHT", view, "BOTTOMRIGHT", -14, 0)
+  view.scroll = scroll
+
+  local content = CreateFrame("Frame", nil, scroll)
+  content:SetSize(1, 1)
+  scroll:SetScrollChild(content)
+  view.content = content
+
+  ns.WhenSkinned(function(S)
+    S.ScrollBar(scroll.ScrollBar or _G["ChronologScrollScrollBar"])
+  end)
+  ns.SkinFonts(view)
+  return view
+end
+
+local function MakeButton(parent, text, width, height)
+  local btn = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+  btn:SetSize(width, height)
+  btn:SetText(text)
+  ns.WhenSkinned(function(S) S.Button(btn) end)
+  return btn
+end
+
 local function BuildWindow()
   frame = CreateFrame("Frame", "ChronologFrame", UIParent, ns.BACKDROP_TEMPLATE)
-  frame:SetSize(560, 600)
+  frame:SetSize(580, 700)
 
   -- Restore saved position (falls back to screen center on first use).
   local wdb = ns.EnsureDB()
@@ -277,21 +318,41 @@ local function BuildWindow()
 
   local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
   title:SetPoint("TOP", frame, "TOP", 0, -14)
-  title:SetText("Chronolog")
+  title:SetText("Chronolog-Forever")
+  ns.TrackAccent(title)
   frame.title = title
 
   local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
   close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -6, -6)
 
+  -- Character selector: cycles this character -> others -> all characters.
+  local charBtn = MakeButton(frame, "Character", 170, 20)
+  charBtn:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, -40)
+  charBtn:SetScript("OnClick", function()
+    local sources = ns.GetSources()
+    local idx = 1
+    for i, s in ipairs(sources) do if s.id == ns.viewSource then idx = i end end
+    ns.viewSource = sources[idx % #sources + 1].id
+    ns.Refresh()
+  end)
+  charBtn:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:AddLine("Click to switch between your characters", 1, 1, 1)
+    GameTooltip:AddLine("(characters appear here after you log them in once)", 0.6, 0.6, 0.6)
+    GameTooltip:Show()
+  end)
+  charBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+  frame.charBtn = charBtn
+
   -- Summary lines
   local prev
-  for i = 1, 6 do
+  for i = 1, NUM_SUMMARY do
     local fs = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     fs:SetJustifyH("LEFT")
     if prev then
       fs:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, -5)
     else
-      fs:SetPoint("TOPLEFT", frame, "TOPLEFT", 20, -42)
+      fs:SetPoint("TOPLEFT", charBtn, "BOTTOMLEFT", 0, -10)
     end
     fs:SetPoint("RIGHT", frame, "RIGHT", -20, 0)
     summaryLines[i] = fs
@@ -300,30 +361,36 @@ local function BuildWindow()
 
   -- Aggregate composition bar + legend
   local aggLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  aggLabel:SetPoint("TOPLEFT", summaryLines[6], "BOTTOMLEFT", 0, -12)
+  aggLabel:SetPoint("TOPLEFT", summaryLines[NUM_SUMMARY], "BOTTOMLEFT", 0, -12)
   aggLabel:SetText("Overall composition")
   ns.TrackAccent(aggLabel)
 
-  local aggBar = CreateStackedBar(frame, 20)
+  local aggBar = ns.CreateStackedBar(frame, 20)
   aggBar:SetPoint("TOPLEFT", aggLabel, "BOTTOMLEFT", 0, -4)
   aggBar:SetPoint("RIGHT", frame, "RIGHT", -20, 0)
-  aggBar.width = 520 - 20 -- approx; recomputed below after layout
+  aggBar.width = 520 -- approx; recomputed once laid out
   frame.aggBar = aggBar
 
   aggBar:EnableMouse(true)
   aggBar:SetScript("OnEnter", function(self)
-    local t = ns.GetAggregate().totals
+    local agg = lastAgg or ns.GetAggregate(ns.viewSource)
+    local t = agg.totals
     GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
     GameTooltip:AddLine("Overall composition", 1, 1, 1)
     GameTooltip:AddLine(" ")
-    GameTooltip:AddDoubleLine("Combat", FormatTime(t.combat) .. "  (" .. pct(t.combat, t.total) .. ")", COLORS[1][1], COLORS[1][2], COLORS[1][3], 1, 1, 1)
-    GameTooltip:AddDoubleLine("Travel", FormatTime(t.travel) .. "  (" .. pct(t.travel, t.total) .. ")", COLORS[2][1], COLORS[2][2], COLORS[2][3], 1, 1, 1)
-    GameTooltip:AddDoubleLine("AFK", FormatTime(t.afk) .. "  (" .. pct(t.afk, t.total) .. ")", COLORS[3][1], COLORS[3][2], COLORS[3][3], 1, 1, 1)
-    GameTooltip:AddDoubleLine("Other", FormatTime(t.other) .. "  (" .. pct(t.other, t.total) .. ")", COLORS[4][1], COLORS[4][2], COLORS[4][3], 1, 1, 1)
-    GameTooltip:AddDoubleLine("  of which idle", FormatTime(t.idle) .. "  (" .. pct(t.idle, t.total) .. ")", 0.6, 0.6, 0.6, 0.8, 0.8, 0.8)
+    for i = 1, #ns.KEYS do
+      local c = COLORS[i]
+      local v = t[ns.KEYS[i]]
+      GameTooltip:AddDoubleLine(LABELS[i], FormatTime(v) .. "  (" .. pct(v, t.total) .. ")",
+        c[1], c[2], c[3], 1, 1, 1)
+    end
+    GameTooltip:AddDoubleLine("  of which idle", FormatTime(t.idle) .. "  (" .. pct(t.idle, t.total) .. ")",
+      0.6, 0.6, 0.6, 0.8, 0.8, 0.8)
     GameTooltip:AddLine(" ")
     GameTooltip:AddDoubleLine("Total tracked", FormatTime(t.total), 0.8, 0.8, 0.8, 1, 1, 1)
-    GameTooltip:AddDoubleLine("Grouped", FormatTime(t.grouped) .. "  (" .. pct(t.grouped, t.total) .. ")", 0.8, 0.8, 0.8, 1, 1, 1)
+    GameTooltip:AddDoubleLine("Grouped", FormatTime(t.grouped) .. "  (" .. pct(t.grouped, t.total) .. ")",
+      0.8, 0.8, 0.8, 1, 1, 1)
+    GameTooltip:AddDoubleLine("Loading screens (not counted)", FormatTime(t.loading), 0.5, 0.5, 0.5, 0.7, 0.7, 0.7)
     GameTooltip:Show()
   end)
   aggBar:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -334,48 +401,39 @@ local function BuildWindow()
   swatchHolder:SetWidth(400)
   swatchHolder:SetHeight(14)
   local last
-  for i = 1, 4 do
+  for i = 1, #LABELS do
     last = CreateLegendSwatch(swatchHolder, i, last)
   end
 
-  -- Column headers (aligned to the row columns in AcquireRow)
-  local hdr = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  hdr:SetPoint("TOPLEFT", swatchHolder, "BOTTOMLEFT", 2, -10)
-  hdr:SetText("Lvl")
-  ns.TrackAccent(hdr)
-  local hdrBar = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  hdrBar:SetPoint("LEFT", hdr, "LEFT", 46, 0)
-  hdrBar:SetText("Time composition")
-  ns.TrackAccent(hdrBar)
-  local hdrKills = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  hdrKills:SetPoint("LEFT", hdr, "LEFT", 46 + ROW_BAR_W + 10, 0)
-  hdrKills:SetWidth(52)
-  hdrKills:SetJustifyH("RIGHT")
-  hdrKills:SetText("Kills")
-  ns.TrackAccent(hdrKills)
-  local hdrQuests = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  hdrQuests:SetPoint("LEFT", hdrKills, "RIGHT", 10, 0)
-  hdrQuests:SetWidth(52)
-  hdrQuests:SetJustifyH("RIGHT")
-  hdrQuests:SetText("Quests")
-  ns.TrackAccent(hdrQuests)
-  local hdrTime = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  hdrTime:SetPoint("LEFT", hdrQuests, "RIGHT", 10, 0)
-  hdrTime:SetWidth(90)
-  hdrTime:SetJustifyH("RIGHT")
-  hdrTime:SetText("Total")
-  ns.TrackAccent(hdrTime)
+  -- Tabs
+  local tabs = {
+    { id = "levels", label = "Levels" },
+    { id = "zones", label = "Zones" },
+    { id = "charts", label = "Charts" },
+  }
+  local prevTab
+  for _, t in ipairs(tabs) do
+    local btn = MakeButton(frame, t.label, 90, 22)
+    if prevTab then
+      btn:SetPoint("LEFT", prevTab, "RIGHT", 6, 0)
+    else
+      btn:SetPoint("TOPLEFT", swatchHolder, "BOTTOMLEFT", 0, -10)
+    end
+    btn:SetScript("OnClick", function() SelectTab(t.id) end)
+    tabButtons[t.id] = btn
+    prevTab = btn
+  end
 
-  -- Scroll list
-  local scroll = CreateFrame("ScrollFrame", "ChronologScroll", frame, "UIPanelScrollFrameTemplate")
-  scroll:SetPoint("TOPLEFT", hdr, "BOTTOMLEFT", 0, -6)
-  scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -34, 32)
-  frame.scroll = scroll
+  -- Body: holds the three views
+  local body = CreateFrame("Frame", nil, frame)
+  body:SetPoint("TOPLEFT", tabButtons.levels, "BOTTOMLEFT", 0, -8)
+  body:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -20, 36)
 
-  local content = CreateFrame("Frame", nil, scroll)
-  content:SetSize(1, 1)
-  scroll:SetScrollChild(content)
-  frame.content = content
+  views.levels = BuildLevelsView(body)
+  views.zones = ns.BuildZonesView(body)
+  views.charts = ns.BuildChartsView(body)
+  views.zones:Hide()
+  views.charts:Hide()
 
   -- footer hint
   local hint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
@@ -384,7 +442,6 @@ local function BuildWindow()
 
   -- live refresh while shown
   frame:SetScript("OnShow", function(self)
-    -- fix aggregate bar width now that it's laid out
     local w = self.aggBar:GetWidth()
     if w and w > 0 then self.aggBar.width = w end
     ns.Refresh()
@@ -405,7 +462,6 @@ local function BuildWindow()
     frame:SetBackdrop(nil) -- drop the Blizzard dialog art; Shell paints the theme
     S.Shell(frame)
     S.CloseButton(close)
-    S.ScrollBar(scroll.ScrollBar or _G["ChronologScrollScrollBar"])
   end)
   ns.SkinFonts(frame)
 end
