@@ -1,5 +1,5 @@
-## Interface: 30300
-## Title: Chronolog
+## Interface: 16001
+## Title: Chronolog-Forever
 ## Notes: Tracks per-level time in combat, traveling, and AFK, plus mobs killed, with a stats window and charts.
 ## Author: Me and my pal Claude
 ## Version: 1.0

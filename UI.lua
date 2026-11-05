@@ -36,12 +36,12 @@ local function CreateStackedBar(parent, height)
   bar:SetHeight(height)
   bar.bg = bar:CreateTexture(nil, "BACKGROUND")
   bar.bg:SetAllPoints(true)
-  bar.bg:SetTexture(0, 0, 0, 0.35)
+  ns.SetColor(bar.bg, 0, 0, 0, 0.35)
   bar.segs = {}
   for i = 1, 4 do
     local t = bar:CreateTexture(nil, "ARTWORK")
     local c = COLORS[i]
-    t:SetTexture(c[1], c[2], c[3], 1)
+    ns.SetColor(t, c[1], c[2], c[3], 1)
     bar.segs[i] = t
   end
   return bar
@@ -110,7 +110,7 @@ local function AcquireRow(index, parent)
 
   row.highlight = row:CreateTexture(nil, "BACKGROUND")
   row.highlight:SetAllPoints(true)
-  row.highlight:SetTexture(1, 1, 1, 0.06)
+  ns.SetColor(row.highlight, 1, 1, 1, 0.06)
   row.highlight:Hide()
 
   row:SetScript("OnEnter", function(self)
@@ -223,7 +223,7 @@ end
 local function CreateLegendSwatch(parent, index, anchorTo)
   local sw = parent:CreateTexture(nil, "ARTWORK")
   local c = COLORS[index]
-  sw:SetTexture(c[1], c[2], c[3], 1)
+  ns.SetColor(sw, c[1], c[2], c[3], 1)
   sw:SetWidth(10)
   sw:SetHeight(10)
   local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -238,7 +238,7 @@ local function CreateLegendSwatch(parent, index, anchorTo)
 end
 
 local function BuildWindow()
-  frame = CreateFrame("Frame", "ChronologFrame", UIParent)
+  frame = CreateFrame("Frame", "ChronologFrame", UIParent, ns.BACKDROP_TEMPLATE)
   frame:SetSize(560, 600)
 
   -- Restore saved position (falls back to screen center on first use).

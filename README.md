@@ -1,6 +1,6 @@
-# Chronolog
+# Chronolog-Forever
 
-A lightweight playtime tracker for the Ascension WoW 3.3.5 client. It records,
+A lightweight playtime tracker for **WoW Forever** (the Midnight-based client). It records,
 **per character level**, how you spend your time and how much you kill, then
 shows it in a window with charts.
 
@@ -27,7 +27,7 @@ separate counters.
 Per-level values for grouped time, quests and dungeons show in each row's hover
 tooltip; the table columns show kills and quests, and the header shows totals.
 
-When a character has no saved data yet, Chronolog seeds one row for every level
+When a character has no saved data yet, Chronolog-Forever seeds one row for every level
 from your **current level up to 60**. As you level up, new time and kills flow
 into the new level's row automatically.
 
@@ -57,11 +57,13 @@ a level with a tiny sample can't show a misleading 100%.
 ## Notes
 
 - Data is stored per character (`ChronologDB`).
-- No external libraries; pure 3.3.5 API. Safe to keep across launcher re-syncs
+- No external libraries. Targets the WoW Forever client (interface 16001). Safe to keep across launcher re-syncs
   since it is its own addon folder.
-- Kill counting uses the combat log's `PARTY_KILL` (killing blows credited to
-  you or your pet, players excluded). If a server doesn't emit that event,
-  time tracking still works but kills may not register.
+- Addons can't read the combat log on Forever, so kills are counted from the
+  "<mob> dies, you gain N experience" chat line. Only XP-granting kills count
+  (not grey mobs, and nothing at level 60), and kills by group members that
+  award you XP are included. Install into
+  `World of Warcraft/_forever_/Interface/AddOns/Chronolog-Forever`.
 - Dungeon completion is credited when the Dungeon Finder fires
   `LFG_COMPLETION_REWARD`, or — for manual runs that don't use the finder — when
   you leave a 5-man instance after being inside at least 4 minutes. The two are
