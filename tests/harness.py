@@ -77,7 +77,7 @@ function GetBuildInfo() return "12.1.7", "1", "x", 120107 end
 local pname, prealm = "Tester", "Realm"
 function SETCHAR(n, r) pname, prealm = n, r or "Realm" end
 function UnitName() return pname end
-function GetRealmName() return prealm end
+function GetRealmName() if W.realmBlank then return "" end return prealm end
 function UnitClass() return "Shaman", "SHAMAN" end
 function UnitLevel() return W.level end
 function UnitGUID(u) if u == "target" then return W.targetGUID end return "Player-1" end

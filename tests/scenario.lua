@@ -290,6 +290,46 @@ step("pace: best splits, specific character, reference cycling", function()
   assert(ns.GetPace("Fast-Realm"), "pace for another character")
 end)
 
+step("pace never compares a character with a stale copy of itself", function()
+  local a = ChronologAccountDB
+  -- What the empty-realm-at-logout bug left behind: a copy filed under "Tester-".
+  local copy = {}
+  for L, r in pairs(ChronologForeverDB.levels) do copy[L] = { total = r.total, untracked = r.untracked, full = r.full } end
+  a.chars["Tester-"] = { name = "Tester", realm = "", class = "SHAMAN", startLevel = 11, level = 12,
+    levels = copy, updated = 9e9 }
+  copy[11].total, copy[11].untracked = 1, 0 -- would be the best split if it counted
+  local p = ns.GetPace()
+  eq(p.levels[11].refName, "Fast", "the copy is ignored, not used as best split")
+  for _, r in ipairs(ns.GetPaceRefs()) do assert(r.id ~= "Tester-", "copy offered as a reference") end
+  -- The next sync removes it.
+  FIRE("PLAYER_LEVEL_UP", W.level); W.level = W.level
+  eq(a.chars["Tester-"], nil, "stale copy removed")
+  assert(a.chars["Tester-Realm"].guid, "guid stored")
+end)
+
+step("empty realm at logout doesn't create a second entry", function()
+  W.realmBlank = true
+  FIRE("PLAYER_LOGOUT")
+  W.realmBlank = false
+  eq(ChronologAccountDB.chars["Tester-"], nil)
+  assert(ChronologAccountDB.chars["Tester-Realm"], "still filed under the real realm")
+end)
+
+step("other characters' blank-realm duplicates are merged into one entry", function()
+  local a = ChronologAccountDB
+  a.chars["Dup-Realm"] = { name = "Dup", realm = "Realm", class = "MAGE", level = 9, levels = { [5] = { total = 10 } }, updated = 100 }
+  a.chars["Dup-"] = { name = "Dup", realm = "", class = "MAGE", level = 14, levels = { [5] = { total = 99 } }, updated = 200 }
+  FIRE("PLAYER_LOGOUT")
+  eq(a.chars["Dup-"], nil, "blank copy folded in")
+  eq(a.chars["Dup-Realm"].level, 14, "newer data kept")
+  eq(a.chars["Dup-Realm"].realm, "Realm")
+  -- different realms stay separate characters
+  a.chars["Dup-Other"] = { name = "Dup", realm = "Other", class = "MAGE", levels = {}, updated = 300 }
+  FIRE("PLAYER_LOGOUT")
+  assert(a.chars["Dup-Other"] and a.chars["Dup-Realm"], "kept apart")
+  a.chars["Dup-Other"], a.chars["Dup-Realm"] = nil, nil
+end)
+
 step("main window builds and refreshes all tabs / sources", function()
   SlashCmdList.CHRONOLOG("")
   assert(ChronologFrame and ChronologFrame.shown, "window shown")

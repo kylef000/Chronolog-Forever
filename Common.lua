@@ -40,6 +40,9 @@ ns.UNTRACKED_COLOR = { 0.32, 0.32, 0.36 }
 -- Time recovered from an unsaved session (crash etc.); activity unknown.
 ns.LOST_COLOR = { 0.48, 0.38, 0.30 }
 
+-- The pace reference (best splits / another character).
+ns.REF_COLOR = { 0.60, 0.60, 0.66 }
+
 ns.AHEAD_COLOR = { 0.30, 0.85, 0.40 }
 ns.BEHIND_COLOR = { 1.00, 0.37, 0.34 }
 

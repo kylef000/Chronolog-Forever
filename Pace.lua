@@ -51,8 +51,11 @@ local function OtherChars(exceptKey)
   local list = {}
   local a = ChronologAccountDB
   if not (a and a.chars) then return list end
-  for key in pairs(a.chars) do
-    if key ~= exceptKey then
+  local meKey = ns.CharKey()
+  for key, entry in pairs(a.chars) do
+    -- Never compare a character with (a copy of) itself.
+    local isSelf = (key == meKey) or ns.IsCurrentCharEntry(entry)
+    if key ~= exceptKey and not (exceptKey == meKey and isSelf) then
       local c = CharInfo(key)
       if c then list[#list + 1] = c end
     end

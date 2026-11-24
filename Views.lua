@@ -170,6 +170,14 @@ local function SignedShortTime(v)
   return "0"
 end
 
+-- Compact signed delta for labels: "-45s", "+4m", "-1.5h".
+local function ShortDelta(v)
+  local sign = v < 0 and "-" or "+"
+  local a = math.abs(v)
+  if a < 60 then return sign .. string.format("%ds", math.floor(a + 0.5)) end
+  return sign .. ns.FormatShortTime(a)
+end
+
 local function LegendText(labels, colors)
   local parts = {}
   for i, l in ipairs(labels) do parts[#parts + 1] = ns.Hex(colors[i]) .. l .. "|r" end
@@ -243,27 +251,62 @@ local function BuildSpec(mode, agg, pace)
     spec.empty = "Location tracking starts with this version - play a little and it fills in."
 
   elseif mode == "pace" then
-    spec.kind, spec.isTime, spec.fmt = "diverge", true, SignedShortTime
-    spec.line = {}
+    -- Two bars per level: your time next to the reference's, with the gain or
+    -- loss written above the pair.
+    spec.isTime, spec.fmt = true, ns.FormatShortTime
+    local you, ref = accent, ns.REF_COLOR
+    local refLabel = pace and pace.refLabel or "best splits"
+    local refTitle = (refLabel == "best splits") and "Best splits" or refLabel
     if pace then
       for lvl = 1, ns.MAX_LEVEL do
         local p = pace.levels[lvl]
         if p then
-          local color = p.diff <= 0 and ns.AHEAD_COLOR or ns.BEHIND_COLOR
-          spec.points[#spec.points + 1] = { lvl = lvl, segs = { { p.diff, color } }, tip = function(tip)
-            tip:AddLine("Level " .. lvl, 1, 1, 1)
-            tip:AddDoubleLine("Your time", FormatTime(p.mine), 0.8, 0.8, 0.8, 1, 1, 1)
-            tip:AddDoubleLine((p.refName or "Reference") .. "'s time", FormatTime(p.ref), 0.8, 0.8, 0.8, 1, 1, 1)
-            tip:AddDoubleLine("Difference", ns.ColoredDelta(p.diff), 0.8, 0.8, 0.8, 1, 1, 1)
-            tip:AddDoubleLine("Running total", ns.ColoredDelta(p.cum), 0.8, 0.8, 0.8, 1, 1, 1)
-          end }
-          spec.line[#spec.points] = p.cum
+          local dc = p.diff <= 0 and ns.AHEAD_COLOR or ns.BEHIND_COLOR
+          spec.points[#spec.points + 1] = {
+            lvl = lvl,
+            pair = { { p.mine, you }, { p.ref, ref } },
+            top = ns.Hex(dc) .. ShortDelta(p.diff) .. "|r",
+            tip = function(tip)
+              tip:AddLine("Level " .. lvl, 1, 1, 1)
+              tip:AddDoubleLine("You", FormatTime(p.mine), you[1], you[2], you[3], 1, 1, 1)
+              tip:AddDoubleLine(refLabel == "best splits" and ("Best split (" .. (p.refName or "?") .. ")") or refLabel,
+                FormatTime(p.ref), ref[1], ref[2], ref[3], 1, 1, 1)
+              tip:AddLine(" ")
+              tip:AddDoubleLine(p.diff <= 0 and "Faster by" or "Slower by", ns.ColoredDelta(p.diff),
+                0.8, 0.8, 0.8, 1, 1, 1)
+              tip:AddDoubleLine("Running total after this level", ns.ColoredDelta(p.cum), 0.8, 0.8, 0.8, 1, 1, 1)
+            end,
+          }
         end
       end
+      -- The level in progress: your time so far against the reference's full time.
+      if pace.curLevel and pace.curRef then
+        local behind = pace.curMine > pace.curRef
+        spec.points[#spec.points + 1] = {
+          lvl = pace.curLevel,
+          pair = { { pace.curMine, you, nil, 0.45 }, { pace.curRef, ref, nil, 0.45 } },
+          top = behind and (ns.Hex(ns.BEHIND_COLOR) .. ShortDelta(pace.curMine - pace.curRef) .. "|r") or "|cff888888...|r",
+          tip = function(tip)
+            tip:AddLine("Level " .. pace.curLevel .. " (in progress)", 1, 1, 1)
+            tip:AddDoubleLine("You so far", FormatTime(pace.curMine), you[1], you[2], you[3], 1, 1, 1)
+            tip:AddDoubleLine(refTitle, FormatTime(pace.curRef), ref[1], ref[2], ref[3], 1, 1, 1)
+            if behind then
+              tip:AddLine("Already slower than the reference on this level.", 1, 0.45, 0.4, true)
+            else
+              tip:AddLine("Ding within " .. FormatTime(pace.curRef - pace.curMine) .. " to beat it.", 0.3, 0.85, 0.4, true)
+            end
+          end,
+        }
+      end
+      if pace.n > 0 then
+        spec.headline = string.format("%s overall vs %s  |cff888888(%s over %d finished %s)|r",
+          ns.ColoredDelta(pace.cum), refLabel, pace.cum <= 0 and "ahead" or "behind",
+          pace.n, pace.n == 1 and "level" or "levels")
+      end
     end
-    spec.caption = "vs " .. (pace and pace.refLabel or "best splits") .. ":  "
-      .. ns.Hex(ns.AHEAD_COLOR) .. "faster|r  " .. ns.Hex(ns.BEHIND_COLOR) .. "slower|r"
-      .. "   |cff" .. ns.AccentHex() .. "line: running total|r"
+    spec.caption = ns.Hex(you) .. "You|r  vs  " .. ns.Hex(ref) .. refTitle .. "|r"
+      .. "   |cff888888above each pair: " .. ns.Hex(ns.AHEAD_COLOR) .. "faster|r|cff888888 / |r"
+      .. ns.Hex(ns.BEHIND_COLOR) .. "slower|r"
     if agg.source == "ALL" then
       spec.empty = "Pick a single character to see its pace."
     elseif pace and not pace.hasOthers then
@@ -353,6 +396,11 @@ function ns.BuildChartsView(parent)
   empty:SetPoint("CENTER", area, "CENTER", 0, 0)
   empty:SetWidth(380)
 
+  -- One-line summary drawn inside the plot (pace: running total).
+  local headline = area:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+  headline:SetPoint("TOPLEFT", area, "TOPLEFT", 6, -6)
+  headline:SetJustifyH("LEFT")
+
   local caption = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   caption:SetPoint("BOTTOMLEFT", view, "BOTTOMLEFT", 0, 2)
   caption:SetJustifyH("LEFT")
@@ -401,6 +449,7 @@ function ns.BuildChartsView(parent)
     c.segs = {}
     c.label = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     c.label:SetPoint("TOP", c, "BOTTOM", 0, -3)
+    c.top = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     c:SetScript("OnEnter", function(self)
       ns.SetColor(self.hl, 1, 1, 1, 0.08)
       if self.tip then
@@ -473,6 +522,8 @@ function ns.BuildChartsView(parent)
     local pace = ns.GetPace(agg.source)
     local spec = BuildSpec(mode, agg, pace)
     caption:SetText(spec.caption or "")
+    headline:SetText(spec.headline or "")
+    headline:SetShown(spec.headline ~= nil and #spec.points > 0)
     refBtn:SetShown(mode == "pace" and agg.source ~= "ALL")
     if mode == "pace" then refBtn:SetText("vs " .. ns.GetPaceRefLabel()) end
 
@@ -490,8 +541,12 @@ function ns.BuildChartsView(parent)
     local maxPos, maxNeg = 0, 0
     for _, p in ipairs(points) do
       local pos, neg = 0, 0
-      for _, s in ipairs(p.segs) do
-        if s[1] > 0 then pos = pos + s[1] else neg = neg + s[1] end
+      if p.pair then
+        for _, s in ipairs(p.pair) do if s[1] > pos then pos = s[1] end end
+      else
+        for _, s in ipairs(p.segs) do
+          if s[1] > 0 then pos = pos + s[1] else neg = neg + s[1] end
+        end
       end
       if pos > maxPos then maxPos = pos end
       if neg < maxNeg then maxNeg = neg end
@@ -503,6 +558,9 @@ function ns.BuildChartsView(parent)
       end
     end
     if spec.avg and spec.avg > maxPos then maxPos = spec.avg end
+    -- Headroom for the labels above the columns and the headline.
+    if points[1].top then maxPos = maxPos * 1.12 end
+    if spec.headline then maxPos = maxPos * 1.12 end
 
     local yMin, yMax, step
     if spec.kind == "diverge" then
@@ -544,7 +602,8 @@ function ns.BuildChartsView(parent)
 
     -- Columns
     local slot = W / n
-    local barW = math.max(2, math.min(slot * 0.7, 26))
+    local paired = points[1].pair ~= nil
+    local barW = math.max(2, math.min(slot * (paired and 0.8 or 0.7), paired and 36 or 26))
     local inset = (slot - barW) / 2
     local cur = (agg.source == nil) and ns.state.currentLevel or nil
     local every = (n <= 20) and 1 or 5
@@ -559,7 +618,25 @@ function ns.BuildChartsView(parent)
 
       local pos, neg = 0, 0
       local j = 0
-      for _, s in ipairs(p.segs) do
+      local top = 0
+      if p.pair then
+        -- Side-by-side bars (pace: you vs. the reference).
+        local half = math.max(1, barW / 2 - 1)
+        for k, s in ipairs(p.pair) do
+          local val, color = s[1], s[2]
+          if val > top then top = val end
+          if val > 0 then
+            j = j + 1
+            local t = Seg(c, j)
+            t:ClearAllPoints()
+            t:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", inset + (k - 1) * (barW / 2) + (k - 1), Y(0))
+            t:SetSize(half, math.max(1, Y(val) - Y(0)))
+            ns.SetColor(t, color[1], color[2], color[3], s[4] or 0.9)
+            t:Show()
+          end
+        end
+      end
+      for _, s in ipairs(p.pair and {} or p.segs) do
         local val, color = s[1], s[2]
         if val ~= 0 then
           local lo, hi
@@ -583,6 +660,16 @@ function ns.BuildChartsView(parent)
         end
       end
       for k = j + 1, #c.segs do c.segs[k]:Hide() end
+
+      -- Value written above the column (pace: gain/loss), if there's room.
+      if p.top and slot >= 18 then
+        c.top:ClearAllPoints()
+        c.top:SetPoint("BOTTOM", c, "BOTTOMLEFT", slot / 2, Y(top) + 2)
+        c.top:SetText(p.top)
+        c.top:Show()
+      else
+        c.top:Hide()
+      end
 
       if every == 1 or p.lvl % every == 0 or i == 1 or i == n or c.isCurrent then
         c.label:SetText(p.lvl)

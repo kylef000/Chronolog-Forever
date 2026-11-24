@@ -141,8 +141,71 @@ local function MigrateRow(row)
   if type(row.subzones) ~= "table" then row.subzones = {} end
 end
 
+-- The realm name. On Forever GetRealmName() can return "" (e.g. at logout),
+-- which used to file a second, stale copy of the character under "Name-".
+-- Remember the last good value and use it when the client returns nothing.
+local cachedRealm
+local function RealmName()
+  local r = Clean(GetRealmName())
+  if (not r or r == "") and GetNormalizedRealmName then r = Clean(GetNormalizedRealmName()) end
+  if type(r) == "string" and r ~= "" then
+    cachedRealm = r
+    if ChronologForeverDB then ChronologForeverDB.realm = r end
+    return r
+  end
+  return cachedRealm or (ChronologForeverDB and ChronologForeverDB.realm) or ""
+end
+ns.RealmName = RealmName
+
 function ns.CharKey()
-  return (UnitName("player") or "?") .. "-" .. (GetRealmName() or "?")
+  return (UnitName("player") or "?") .. "-" .. RealmName()
+end
+
+-- Is this account entry (another key) actually the current character?
+function ns.IsCurrentCharEntry(entry)
+  if type(entry) ~= "table" then return false end
+  local guid = UnitGUID("player")
+  if entry.guid and guid then return entry.guid == guid end
+  local _, class = UnitClass("player")
+  local realm = RealmName()
+  return entry.name == UnitName("player") and (entry.class == nil or entry.class == class)
+    and (entry.realm == nil or entry.realm == "" or realm == "" or entry.realm == realm)
+end
+
+-- Fold duplicate entries of the same character (saved under "Name-" when the
+-- realm came back empty) into one, keeping the most recently updated data.
+local function DedupeAccount(a)
+  local byName = {}
+  for key, c in pairs(a.chars) do
+    if type(c) == "table" and c.name then
+      local id = c.name .. "|" .. (c.class or "?")
+      byName[id] = byName[id] or {}
+      table.insert(byName[id], key)
+    end
+  end
+  for _, keys in pairs(byName) do
+    if #keys > 1 then
+      -- Only merge a blank-realm entry into a single realm-named one; two
+      -- different realms are different characters.
+      local named, blank = {}, {}
+      for _, k in ipairs(keys) do
+        local c = a.chars[k]
+        if c.realm == nil or c.realm == "" then blank[#blank + 1] = k else named[#named + 1] = k end
+      end
+      if #named == 1 and #blank > 0 then
+        local target = a.chars[named[1]]
+        for _, k in ipairs(blank) do
+          local c = a.chars[k]
+          if (c.updated or 0) > (target.updated or 0) then
+            c.realm, c.key = target.realm, nil
+            a.chars[named[1]] = c
+            target = c
+          end
+          a.chars[k] = nil
+        end
+      end
+    end
+  end
 end
 
 local function EnsureDB()
@@ -200,9 +263,17 @@ local function SyncAccount()
   if type(a.chars) ~= "table" then a.chars = {} end
   local db = ChronologForeverDB
   if not db then return end
-  a.chars[ns.CharKey()] = {
+  local key = ns.CharKey()
+  -- Drop any other entry that is really this character (stale copies would
+  -- otherwise race against us in pace comparisons).
+  for k, c in pairs(a.chars) do
+    if k ~= key and ns.IsCurrentCharEntry(c) then a.chars[k] = nil end
+  end
+  DedupeAccount(a)
+  a.chars[key] = {
     name = UnitName("player"),
-    realm = GetRealmName(),
+    realm = RealmName(),
+    guid = UnitGUID("player"),
     class = db.class,
     startLevel = db.startLevel,
     level = state.currentLevel or UnitLevel("player"),
