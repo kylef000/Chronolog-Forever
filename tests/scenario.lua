@@ -399,7 +399,7 @@ step("crash recovery, same level: time, kills, quests, XP, gold put back", funct
   eq(r.xp - r0.xp, 300); eq(r.gold - r0.gold, 5000)
   near(r.untracked, r0.untracked, "not mistaken for pre-install time")
   eq(ChronologForeverDB.recoveries[1].kills, 7)
-  assert(PRINTED[#PRINTED]:find("recovered an unsaved session"), "login note")
+  assert(PRINTED[#PRINTED]:find("recovered play that wasn't saved"), "login note")
   -- XP/gold aren't counted a second time by the live trackers
   FIRE("PLAYER_XP_UPDATE"); FIRE("PLAYER_MONEY")
   eq(r.xp - r0.xp, 300, "no double XP"); eq(r.gold - r0.gold, 5000, "no double gold")
