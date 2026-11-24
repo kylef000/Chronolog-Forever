@@ -3,26 +3,31 @@
   ----------------------
   The main window:
     * a character selector (this character / others / all)
-    * headline stats and an overall composition bar
+    * stat tiles (played, kills, quests, deaths, XP/hr, gold/hr, ETA, pace)
+    * activity and location composition bars
     * three tabs: Levels (per-level list), Zones, Charts
 ]]
 
 local addonName, ns = ...
 
 local FormatTime = ns.FormatTime
-local COLORS, LABELS = ns.COLORS, ns.LABELS
 
 local ROW_H = 20
-local ROW_BAR_W = 170
-local NUM_SUMMARY = 7
+local ROW_BAR_W = 150
+local TILE_W, TILE_H, TILE_GAP = 131, 46, 6
 
 local frame -- main window
 local rows = {} -- pooled per-level row frames
-local summaryLines = {}
+local tiles = {}
 local views = {} -- tab id -> view frame (with Refresh)
 local tabButtons = {}
 local currentTab = "levels"
 local lastAgg
+
+local function pct(part, whole)
+  if not whole or whole <= 0 then return "0%" end
+  return string.format("%.0f%%", part / whole * 100)
+end
 
 --------------------------------------------------------------------------------
 -- Row pool (Levels tab)
@@ -40,38 +45,38 @@ local function AcquireRow(index, parent)
   row.level:SetWidth(40)
   row.level:SetJustifyH("LEFT")
 
-  row.bar = ns.CreateStackedBar(row, ROW_H - 6)
+  row.bar = ns.CreateStackedBar(row, ROW_H - 8)
   row.bar:SetPoint("LEFT", row, "LEFT", 46, 0)
   row.bar:SetWidth(ROW_BAR_W)
 
-  row.kills = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  row.kills:SetPoint("LEFT", row.bar, "RIGHT", 10, 0)
-  row.kills:SetWidth(52)
-  row.kills:SetJustifyH("RIGHT")
-
-  row.quests = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  row.quests:SetPoint("LEFT", row.kills, "RIGHT", 10, 0)
-  row.quests:SetWidth(52)
-  row.quests:SetJustifyH("RIGHT")
-
-  row.time = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  row.time:SetPoint("LEFT", row.quests, "RIGHT", 10, 0)
-  row.time:SetWidth(90)
-  row.time:SetJustifyH("RIGHT")
+  local function Col(anchor, width, template)
+    local fs = row:CreateFontString(nil, "OVERLAY", template or "GameFontHighlightSmall")
+    fs:SetPoint("LEFT", anchor, "RIGHT", 8, 0)
+    fs:SetWidth(width)
+    fs:SetJustifyH("RIGHT")
+    return fs
+  end
+  row.kills = Col(row.bar, 46)
+  row.quests = Col(row.kills, 46)
+  row.time = Col(row.quests, 80)
+  row.pace = Col(row.time, 74)
 
   row.highlight = row:CreateTexture(nil, "BACKGROUND")
   row.highlight:SetAllPoints(true)
   ns.SetColor(row.highlight, 1, 1, 1, 0.06)
   row.highlight:Hide()
 
+  row.stripe = row:CreateTexture(nil, "BACKGROUND")
+  row.stripe:SetAllPoints(true)
+
   row:SetScript("OnEnter", function(self)
     self.highlight:Show()
     local d = self.data
     if not d then return end
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    GameTooltip:AddLine("Level " .. d.lvl, 1, 1, 1)
+    GameTooltip:AddLine("Level " .. d.lvl .. (d.current and " (current)" or ""), 1, 1, 1)
     GameTooltip:AddLine(" ")
-    ns.AddBreakdown(GameTooltip, d.row, d.avg)
+    ns.AddBreakdown(GameTooltip, d.row, d.avg, d.pace)
     GameTooltip:Show()
   end)
   row:SetScript("OnLeave", function(self)
@@ -86,13 +91,160 @@ local function AcquireRow(index, parent)
 end
 
 --------------------------------------------------------------------------------
--- Refresh
+-- Stat tiles
 --------------------------------------------------------------------------------
-local function pct(part, whole)
-  if not whole or whole <= 0 then return "0%" end
-  return string.format("%.0f%%", part / whole * 100)
+local TILE_DEFS = {
+  { id = "played", label = "Played" },
+  { id = "kills",  label = "Kills" },
+  { id = "quests", label = "Quests" },
+  { id = "deaths", label = "Deaths" },
+  { id = "xph",    label = "XP / hour" },
+  { id = "gph",    label = "Gold / hour" },
+  { id = "eta",    label = "Next level" },
+  { id = "pace",   label = "Pace" },
+}
+
+local function BuildTile(parent, def)
+  local t = CreateFrame("Frame", nil, parent)
+  t:SetSize(TILE_W, TILE_H)
+  t:EnableMouse(true)
+  t.bg = t:CreateTexture(nil, "BACKGROUND")
+  t.bg:SetAllPoints(true)
+  ns.SetColor(t.bg, 0, 0, 0, 0.28)
+  t.edge = t:CreateTexture(nil, "BORDER")
+  t.edge:SetPoint("TOPLEFT", t, "TOPLEFT", 0, 0)
+  t.edge:SetPoint("BOTTOMLEFT", t, "BOTTOMLEFT", 0, 0)
+  t.edge:SetWidth(2)
+
+  t.label = t:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  t.label:SetPoint("TOPLEFT", t, "TOPLEFT", 8, -5)
+  t.label:SetText(def.label)
+  ns.TrackAccent(t.label)
+
+  t.value = t:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
+  t.value:SetPoint("TOPLEFT", t.label, "BOTTOMLEFT", 0, -2)
+  t.value:SetJustifyH("LEFT")
+
+  t.sub = t:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  t.sub:SetPoint("BOTTOMRIGHT", t, "BOTTOMRIGHT", -6, 5)
+  t.sub:SetJustifyH("RIGHT")
+
+  t:SetScript("OnEnter", function(self)
+    ns.SetColor(self.bg, 1, 1, 1, 0.07)
+    if not self.tip then return end
+    GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+    self.tip(GameTooltip)
+    GameTooltip:Show()
+  end)
+  t:SetScript("OnLeave", function(self)
+    ns.SetColor(self.bg, 0, 0, 0, 0.28)
+    GameTooltip:Hide()
+  end)
+  ns.SkinFonts(t)
+  return t
 end
 
+local function SetTile(id, value, sub, tip)
+  local t = tiles[id]
+  t.value:SetText(value)
+  t.sub:SetText(sub or "")
+  t.tip = tip
+end
+
+local function RefreshTiles(agg, pace)
+  local t = agg.totals
+  local hours = t.total / 3600
+  local function rate(v) return hours > 0 and v / hours or 0 end
+  local r, g, b = ns.GetAccent()
+  for _, tile in pairs(tiles) do ns.SetColor(tile.edge, r, g, b, 0.9) end
+
+  local played = t.total + t.untracked
+  SetTile("played", FormatTime(played),
+    t.untracked > 0 and ("tracked " .. ns.FormatShortTime(t.total)) or (agg.startLevel and ("since Lv " .. agg.startLevel) or ""),
+    function(tip)
+      tip:AddLine("Time played", 1, 1, 1)
+      tip:AddDoubleLine("Tracked by Chronolog", FormatTime(t.total), 0.8, 0.8, 0.8, 1, 1, 1)
+      if t.untracked > 0 then
+        tip:AddDoubleLine("Before tracking (from /played)", FormatTime(t.untracked), 0.6, 0.6, 0.6, 0.8, 0.8, 0.8)
+      end
+      tip:AddDoubleLine("Grouped", FormatTime(t.grouped) .. "  (" .. pct(t.grouped, t.total) .. ")", 0.8, 0.8, 0.8, 1, 1, 1)
+      tip:AddDoubleLine("Professions window open", FormatTime(t.crafting), 0.8, 0.8, 0.8, 1, 1, 1)
+      tip:AddDoubleLine("Loading screens (not counted)", FormatTime(t.loading), 0.5, 0.5, 0.5, 0.7, 0.7, 0.7)
+      local db = ns.EnsureDB()
+      if agg.source == nil and db.playedTotal then
+        tip:AddLine(" ")
+        tip:AddDoubleLine("/played (whole character)", FormatTime(db.playedTotal), 0.6, 0.6, 0.6, 0.8, 0.8, 0.8)
+      end
+    end)
+  SetTile("kills", ns.FormatNumber(t.kills), string.format("%.0f / hr", rate(t.kills)))
+  SetTile("quests", ns.FormatNumber(t.quests), t.dungeons .. (t.dungeons == 1 and " dungeon" or " dungeons"))
+  SetTile("deaths", tostring(t.deaths), t.dead > 0 and (ns.FormatShortTime(t.dead) .. " dead") or "")
+  SetTile("xph", ns.FormatNumber(rate(t.xp)), ns.FormatNumber(t.xp) .. " XP")
+  local net = t.gold - t.spent
+  SetTile("gph", string.format("%.1fg", rate(t.gold) / 10000),
+    "net " .. (net < 0 and "-" or "") .. ns.FormatGold(math.abs(net)),
+    function(tip)
+      tip:AddLine("Gold", 1, 1, 1)
+      tip:AddDoubleLine("Looted / earned", ns.FormatGold(t.gold), 0.8, 0.8, 0.8, 1, 1, 1)
+      tip:AddDoubleLine("Spent", ns.FormatGold(t.spent), 0.8, 0.8, 0.8, 1, 1, 1)
+    end)
+
+  -- ETA (this character only)
+  if agg.source ~= nil then
+    SetTile("eta", "-", "this character only")
+  elseif ns.state.currentLevel >= ns.MAX_LEVEL then
+    SetTile("eta", "Max level", "")
+  else
+    local toNext, toMax, estimated, source = ns.GetETA()
+    if toNext then
+      SetTile("eta", FormatTime(toNext),
+        toMax and ("60 in " .. (estimated and "~" or "") .. ns.FormatShortTime(toMax)) or "",
+        function(tip)
+          local rateV = ns.GetXPRate()
+          tip:AddLine("Time to level " .. (ns.state.currentLevel + 1), 1, 1, 1)
+          tip:AddDoubleLine("At your XP rate", ns.FormatNumber(rateV or 0) .. " XP/hr", 0.8, 0.8, 0.8, 1, 1, 1)
+          tip:AddLine(source == "recent" and "Rate from your last 30 minutes of play (AFK excluded)."
+            or "Rate from this level's average so far.", 0.6, 0.6, 0.6, true)
+          if toMax then
+            tip:AddLine(" ")
+            tip:AddDoubleLine("Time to 60", FormatTime(toMax), 0.8, 0.8, 0.8, 1, 1, 1)
+            if estimated then
+              tip:AddLine("Some levels' XP is estimated until one of your characters reaches them.", 0.6, 0.6, 0.6, true)
+            end
+          end
+        end)
+    else
+      SetTile("eta", "-", "earn some XP first")
+    end
+  end
+
+  -- Pace
+  if agg.source == "ALL" or not pace then
+    SetTile("pace", "-", "pick a character")
+  elseif pace.n == 0 then
+    SetTile("pace", "-", pace.hasOthers and "no levels to compare" or "needs another character",
+      function(tip)
+        tip:AddLine("Pace", 1, 1, 1)
+        tip:AddLine("Compares how long each level took with your other characters (best splits by default).", 0.8, 0.8, 0.8, true)
+      end)
+  else
+    SetTile("pace", ns.ColoredDelta(pace.cum), "vs " .. pace.refLabel, function(tip)
+      tip:AddLine("Pace vs. " .. pace.refLabel, 1, 1, 1)
+      tip:AddLine((pace.cum <= 0 and "Ahead" or "Behind") .. " over " .. pace.n .. " finished levels.", 0.8, 0.8, 0.8)
+      if pace.curRef then
+        tip:AddLine(" ")
+        tip:AddDoubleLine("Level " .. pace.curLevel .. " so far", FormatTime(pace.curMine), 0.8, 0.8, 0.8, 1, 1, 1)
+        tip:AddDoubleLine("Reference for this level", FormatTime(pace.curRef), 0.8, 0.8, 0.8, 1, 1, 1)
+      end
+      tip:AddLine(" ")
+      tip:AddLine("See the Charts tab (Pace) for every level. /chrono pace changes the reference.", 0.6, 0.6, 0.6, true)
+    end)
+  end
+end
+
+--------------------------------------------------------------------------------
+-- Refresh
+--------------------------------------------------------------------------------
 local function SourceLabel(source)
   for _, s in ipairs(ns.GetSources()) do
     if s.id == source then return s.label end
@@ -100,7 +252,7 @@ local function SourceLabel(source)
   return "This character"
 end
 
-local function RefreshLevels(agg)
+local function RefreshLevels(agg, pace)
   local view = views.levels
   local content = view.content
   local levels = agg.levels
@@ -108,23 +260,34 @@ local function RefreshLevels(agg)
   if width and width > 0 then content:SetWidth(width) end
 
   local currentLevel = (agg.source == nil) and ns.state.currentLevel or nil
+  local dim = "|cff555555-|r"
   for i, lvl in ipairs(levels) do
     local row = AcquireRow(i, content)
     local data = agg.rows[lvl]
-    row.data = { lvl = lvl, row = data, avg = agg.avg }
+    local p = pace and pace.levels[lvl]
+    row.data = { lvl = lvl, row = data, avg = agg.avg, pace = p, current = lvl == currentLevel }
     row:ClearAllPoints()
     row:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -(i - 1) * ROW_H)
     row:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, -(i - 1) * ROW_H)
+    ns.SetColor(row.stripe, 1, 1, 1, (i % 2 == 0) and 0.025 or 0)
 
     if lvl == currentLevel then
-      row.level:SetText("|cff00ff00Lv " .. lvl .. "|r")
+      row.level:SetText("|cff" .. ns.AccentHex() .. "Lv " .. lvl .. "|r")
     else
       row.level:SetText("Lv " .. lvl)
     end
     ns.UpdateStackedBar(row.bar, ns.RowValues(data), ROW_BAR_W)
-    row.kills:SetText(data.kills > 0 and tostring(data.kills) or "|cff555555-|r")
-    row.quests:SetText(data.quests > 0 and tostring(data.quests) or "|cff555555-|r")
-    row.time:SetText(data.total > 0 and FormatTime(data.total) or "|cff555555-|r")
+    row.kills:SetText(data.kills > 0 and tostring(data.kills) or dim)
+    row.quests:SetText(data.quests > 0 and tostring(data.quests) or dim)
+    local lt = ns.LevelTime(data)
+    row.time:SetText(lt > 0 and FormatTime(lt) or dim)
+    if p then
+      row.pace:SetText(ns.ColoredDelta(p.diff))
+    elseif pace and lvl == pace.curLevel and pace.curRef and pace.curMine > pace.curRef then
+      row.pace:SetText(ns.ColoredDelta(pace.curMine - pace.curRef))
+    else
+      row.pace:SetText(dim)
+    end
     row:Show()
   end
   for i = #levels + 1, #rows do
@@ -137,9 +300,12 @@ local function StyleTabs()
   local r, g, b = ns.GetAccent()
   for id, btn in pairs(tabButtons) do
     local fs = btn:GetFontString()
+    local active = (id == currentTab)
     if fs then
-      if id == currentTab then fs:SetTextColor(r, g, b) else fs:SetTextColor(1, 1, 1) end
+      if active then fs:SetTextColor(r, g, b) else fs:SetTextColor(1, 1, 1) end
     end
+    ns.SetColor(btn.underline, r, g, b, 1)
+    btn.underline:SetShown(active)
   end
 end
 
@@ -149,47 +315,29 @@ function ns.Refresh()
   local agg = ns.GetAggregate(ns.viewSource)
   lastAgg = agg
   local t = agg.totals
+  local pace = ns.GetPace(agg.source)
 
-  frame.charBtn:SetText("Character: " .. SourceLabel(ns.viewSource))
+  frame.charBtn:SetText(SourceLabel(ns.viewSource) .. "  >")
 
-  -- Headline summary lines
-  local hours = t.total / 3600
-  local kph = (hours > 0) and (t.kills / hours) or 0
-  local xph = (hours > 0) and (t.xp / hours) or 0
-  local gph = (hours > 0) and (t.gold / 10000 / hours) or 0
+  RefreshTiles(agg, pace)
 
-  local sinceTxt = agg.startLevel and ("Lv " .. agg.startLevel) or "?"
-  summaryLines[1]:SetText(ns.Gold("|cffffd200Tracked playtime:|r " .. FormatTime(t.total)
-    .. "   |cff888888(since " .. sinceTxt .. ")|r"))
-  summaryLines[2]:SetText(string.format("%sCombat|r %s (%s)   %sTravel|r %s (%s)",
-    ns.ColorCode(1), FormatTime(t.combat), pct(t.combat, t.total),
-    ns.ColorCode(2), FormatTime(t.travel), pct(t.travel, t.total)))
-  summaryLines[3]:SetText(string.format("%sAFK|r %s (%s)   %sDead|r %s (%s)   %sOther|r %s (%s)",
-    ns.ColorCode(3), FormatTime(t.afk), pct(t.afk, t.total),
-    ns.ColorCode(5), FormatTime(t.dead), pct(t.dead, t.total),
-    ns.ColorCode(4), FormatTime(t.other), pct(t.other, t.total)))
-  summaryLines[4]:SetText(ns.Gold(string.format(
-    "|cffffd200Kills:|r %d   |cffffd200Quests:|r %d   |cffffd200Dungeons:|r %d   |cffffd200Deaths:|r %d",
-    t.kills, t.quests, t.dungeons, t.deaths)))
-  summaryLines[5]:SetText(ns.Gold(string.format(
-    "|cffffd200Grouped:|r %s (%s)   |cffffd200Crafting:|r %s   |cff888888%.1f kills/hr|r",
-    FormatTime(t.grouped), pct(t.grouped, t.total), FormatTime(t.crafting), kph)))
-  summaryLines[6]:SetText(ns.Gold(string.format(
-    "|cffffd200XP:|r %s |cff888888(%s/hr)|r   |cffffd200Gold:|r %s |cff888888(%.1fg/hr, %s spent)|r",
-    ns.FormatNumber(t.xp), ns.FormatNumber(xph), ns.FormatGold(t.gold), gph, ns.FormatGold(t.spent))))
+  -- Composition bars
+  ns.UpdateStackedBar(frame.actBar, ns.RowValues(t), frame.actBar.width)
+  ns.UpdateStackedBar(frame.locBar, ns.LocValues(t), frame.locBar.width, t.total)
 
+  -- Highlights
   local busy = agg.busiestLevel
     and string.format("Lv %d (%.0f%% combat)", agg.busiestLevel, (agg.busiestRatio or 0) * 100) or "-"
   local lazy = agg.laziestLevel
     and string.format("Lv %d (%.0f%% idle)", agg.laziestLevel, (agg.laziestRatio or 0) * 100) or "-"
-  summaryLines[7]:SetText(ns.Gold("|cffffd200Busiest:|r " .. busy .. "   |cffffd200Laziest:|r " .. lazy))
-
-  -- Aggregate composition bar
-  ns.UpdateStackedBar(frame.aggBar, ns.RowValues(t), frame.aggBar.width)
+  local topZone = ns.SortedZones(t.zones, 1)[1]
+  frame.highlights:SetText(ns.Gold(
+    "|cffffd200Busiest|r " .. busy .. "   |cffffd200Laziest|r " .. lazy
+    .. (topZone and ("   |cffffd200Top zone|r " .. topZone.name) or "")))
 
   StyleTabs()
   if currentTab == "levels" then
-    RefreshLevels(agg)
+    RefreshLevels(agg, pace)
   else
     views[currentTab].Refresh(agg)
   end
@@ -206,55 +354,39 @@ end
 --------------------------------------------------------------------------------
 -- Window construction
 --------------------------------------------------------------------------------
-local function CreateLegendSwatch(parent, index, anchorTo)
-  local sw = parent:CreateTexture(nil, "ARTWORK")
-  local c = COLORS[index]
-  ns.SetColor(sw, c[1], c[2], c[3], 1)
-  sw:SetWidth(10)
-  sw:SetHeight(10)
-  local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  fs:SetText(LABELS[index])
-  ns.TrackAccent(fs)
-  if anchorTo then
-    sw:SetPoint("LEFT", anchorTo, "RIGHT", 12, 0)
-  else
-    sw:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
-  end
-  fs:SetPoint("LEFT", sw, "RIGHT", 3, 0)
-  return fs
-end
-
 local function BuildLevelsView(parent)
   local view = CreateFrame("Frame", nil, parent)
   view:SetAllPoints(parent)
 
   -- Column headers (aligned to the row columns in AcquireRow)
-  local hdr = view:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  hdr:SetPoint("TOPLEFT", view, "TOPLEFT", 2, 0)
-  hdr:SetText("Lvl")
-  ns.TrackAccent(hdr)
-  local hdrBar = view:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  hdrBar:SetPoint("LEFT", hdr, "LEFT", 46, 0)
-  hdrBar:SetText("Time composition")
-  ns.TrackAccent(hdrBar)
-  local hdrKills = view:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  hdrKills:SetPoint("LEFT", hdr, "LEFT", 46 + ROW_BAR_W + 10, 0)
-  hdrKills:SetWidth(52)
-  hdrKills:SetJustifyH("RIGHT")
-  hdrKills:SetText("Kills")
-  ns.TrackAccent(hdrKills)
-  local hdrQuests = view:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  hdrQuests:SetPoint("LEFT", hdrKills, "RIGHT", 10, 0)
-  hdrQuests:SetWidth(52)
-  hdrQuests:SetJustifyH("RIGHT")
-  hdrQuests:SetText("Quests")
-  ns.TrackAccent(hdrQuests)
-  local hdrTime = view:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  hdrTime:SetPoint("LEFT", hdrQuests, "RIGHT", 10, 0)
-  hdrTime:SetWidth(90)
-  hdrTime:SetJustifyH("RIGHT")
-  hdrTime:SetText("Total")
-  ns.TrackAccent(hdrTime)
+  local function Hdr(text, x, width, justify)
+    local fs = view:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    fs:SetPoint("TOPLEFT", view, "TOPLEFT", x, 0)
+    if width then fs:SetWidth(width) end
+    fs:SetJustifyH(justify or "LEFT")
+    fs:SetText(text)
+    ns.TrackAccent(fs)
+    return fs
+  end
+  local x = 2
+  local hdr = Hdr("Lvl", x)
+  Hdr("Activity", 46)
+  x = 46 + ROW_BAR_W + 8
+  Hdr("Kills", x, 46, "RIGHT");  x = x + 46 + 8
+  Hdr("Quests", x, 46, "RIGHT"); x = x + 46 + 8
+  Hdr("Time", x, 80, "RIGHT");   x = x + 80 + 8
+  local paceHdr = Hdr("Pace", x, 74, "RIGHT")
+  local paceHit = CreateFrame("Frame", nil, view)
+  paceHit:SetAllPoints(paceHdr)
+  paceHit:EnableMouse(true)
+  paceHit:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_TOP")
+    GameTooltip:AddLine("Pace vs. " .. ns.GetPaceRefLabel(), 1, 1, 1)
+    GameTooltip:AddLine("How much faster (green) or slower (red) each level was than your reference.", 0.8, 0.8, 0.8, true)
+    GameTooltip:AddLine("/chrono pace changes the reference.", 0.6, 0.6, 0.6)
+    GameTooltip:Show()
+  end)
+  paceHit:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
   local scroll = CreateFrame("ScrollFrame", "ChronologScroll", view, "UIPanelScrollFrameTemplate")
   scroll:SetPoint("TOPLEFT", hdr, "BOTTOMLEFT", -2, -6)
@@ -279,6 +411,38 @@ local function MakeButton(parent, text, width, height)
   btn:SetText(text)
   ns.WhenSkinned(function(S) S.Button(btn) end)
   return btn
+end
+
+local function CompositionBar(label, colors, labels, anchor, tipFn)
+  local lab = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  lab:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -10)
+  lab:SetWidth(60)
+  lab:SetJustifyH("LEFT")
+  lab:SetText(label)
+  ns.TrackAccent(lab)
+
+  local bar = ns.CreateStackedBar(frame, 14, colors)
+  bar:SetPoint("LEFT", lab, "RIGHT", 4, 0)
+  bar:SetPoint("RIGHT", frame, "RIGHT", -20, 0)
+  bar.width = 480 -- approx; recomputed once laid out
+  bar:EnableMouse(true)
+  bar:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+    tipFn(GameTooltip, (lastAgg or ns.GetAggregate(ns.viewSource)).totals)
+    GameTooltip:Show()
+  end)
+  bar:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+  local legend = ns.CreateLegend(frame, labels, colors)
+  legend:SetPoint("TOPLEFT", bar, "BOTTOMLEFT", 0, -4)
+  return lab, bar, legend
+end
+
+local function UpdateBarWidths()
+  for _, bar in ipairs({ frame.actBar, frame.locBar }) do
+    local w = bar:GetWidth()
+    if w and w > 0 then bar.width = w end
+  end
 end
 
 local function BuildWindow()
@@ -316,9 +480,15 @@ local function BuildWindow()
   frame:Hide()
   tinsert(UISpecialFrames, "ChronologFrame")
 
+  local icon = frame:CreateTexture(nil, "ARTWORK")
+  icon:SetSize(20, 20)
+  icon:SetPoint("TOPLEFT", frame, "TOPLEFT", 20, -14)
+  icon:SetTexture("Interface\\Icons\\INV_Misc_PocketWatch_01")
+  icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
   local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-  title:SetPoint("TOP", frame, "TOP", 0, -14)
-  title:SetText("Chronolog-Forever")
+  title:SetPoint("LEFT", icon, "RIGHT", 8, 0)
+  title:SetText("Chronolog")
   ns.TrackAccent(title)
   frame.title = title
 
@@ -327,7 +497,7 @@ local function BuildWindow()
 
   -- Character selector: cycles this character -> others -> all characters.
   local charBtn = MakeButton(frame, "Character", 170, 20)
-  charBtn:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, -40)
+  charBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -40, -14)
   charBtn:SetScript("OnClick", function()
     local sources = ns.GetSources()
     local idx = 1
@@ -336,7 +506,7 @@ local function BuildWindow()
     ns.Refresh()
   end)
   charBtn:SetScript("OnEnter", function(self)
-    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
     GameTooltip:AddLine("Click to switch between your characters", 1, 1, 1)
     GameTooltip:AddLine("(characters appear here after you log them in once)", 0.6, 0.6, 0.6)
     GameTooltip:Show()
@@ -344,66 +514,51 @@ local function BuildWindow()
   charBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
   frame.charBtn = charBtn
 
-  -- Summary lines
-  local prev
-  for i = 1, NUM_SUMMARY do
-    local fs = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    fs:SetJustifyH("LEFT")
-    if prev then
-      fs:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, -5)
-    else
-      fs:SetPoint("TOPLEFT", charBtn, "BOTTOMLEFT", 0, -10)
-    end
-    fs:SetPoint("RIGHT", frame, "RIGHT", -20, 0)
-    summaryLines[i] = fs
-    prev = fs
+  -- Stat tiles: 4 x 2
+  for i, def in ipairs(TILE_DEFS) do
+    local tile = BuildTile(frame, def)
+    local col, line = (i - 1) % 4, math.floor((i - 1) / 4)
+    tile:SetPoint("TOPLEFT", frame, "TOPLEFT", 20 + col * (TILE_W + TILE_GAP), -48 - line * (TILE_H + TILE_GAP))
+    tiles[def.id] = tile
   end
 
-  -- Aggregate composition bar + legend
-  local aggLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  aggLabel:SetPoint("TOPLEFT", summaryLines[NUM_SUMMARY], "BOTTOMLEFT", 0, -12)
-  aggLabel:SetText("Overall composition")
-  ns.TrackAccent(aggLabel)
-
-  local aggBar = ns.CreateStackedBar(frame, 20)
-  aggBar:SetPoint("TOPLEFT", aggLabel, "BOTTOMLEFT", 0, -4)
-  aggBar:SetPoint("RIGHT", frame, "RIGHT", -20, 0)
-  aggBar.width = 520 -- approx; recomputed once laid out
-  frame.aggBar = aggBar
-
-  aggBar:EnableMouse(true)
-  aggBar:SetScript("OnEnter", function(self)
-    local agg = lastAgg or ns.GetAggregate(ns.viewSource)
-    local t = agg.totals
-    GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-    GameTooltip:AddLine("Overall composition", 1, 1, 1)
-    GameTooltip:AddLine(" ")
-    for i = 1, #ns.KEYS do
-      local c = COLORS[i]
-      local v = t[ns.KEYS[i]]
-      GameTooltip:AddDoubleLine(LABELS[i], FormatTime(v) .. "  (" .. pct(v, t.total) .. ")",
-        c[1], c[2], c[3], 1, 1, 1)
+  -- Activity / location bars
+  local actLab, actBar, actLegend = CompositionBar("Activity", ns.COLORS, ns.LABELS, tiles.gph, function(tip, t)
+    tip:AddLine("What you were doing", 1, 1, 1)
+    tip:AddLine(" ")
+    for i, key in ipairs(ns.KEYS) do
+      local c = ns.COLORS[i]
+      tip:AddDoubleLine(ns.LABELS[i], FormatTime(t[key]) .. "  (" .. pct(t[key], t.total) .. ")", c[1], c[2], c[3], 1, 1, 1)
     end
-    GameTooltip:AddDoubleLine("  of which idle", FormatTime(t.idle) .. "  (" .. pct(t.idle, t.total) .. ")",
-      0.6, 0.6, 0.6, 0.8, 0.8, 0.8)
-    GameTooltip:AddLine(" ")
-    GameTooltip:AddDoubleLine("Total tracked", FormatTime(t.total), 0.8, 0.8, 0.8, 1, 1, 1)
-    GameTooltip:AddDoubleLine("Grouped", FormatTime(t.grouped) .. "  (" .. pct(t.grouped, t.total) .. ")",
-      0.8, 0.8, 0.8, 1, 1, 1)
-    GameTooltip:AddDoubleLine("Loading screens (not counted)", FormatTime(t.loading), 0.5, 0.5, 0.5, 0.7, 0.7, 0.7)
-    GameTooltip:Show()
+    tip:AddDoubleLine("  of which idle", FormatTime(t.idle) .. "  (" .. pct(t.idle, t.total) .. ")", 0.6, 0.6, 0.6, 0.8, 0.8, 0.8)
   end)
-  aggBar:SetScript("OnLeave", function() GameTooltip:Hide() end)
+  actLab:ClearAllPoints()
+  actLab:SetPoint("TOPLEFT", frame, "TOPLEFT", 20, -48 - 2 * (TILE_H + TILE_GAP) - 8)
+  frame.actBar = actBar
 
-  -- Legend
-  local swatchHolder = CreateFrame("Frame", nil, frame)
-  swatchHolder:SetPoint("TOPLEFT", aggBar, "BOTTOMLEFT", 0, -6)
-  swatchHolder:SetWidth(400)
-  swatchHolder:SetHeight(14)
-  local last
-  for i = 1, #LABELS do
-    last = CreateLegendSwatch(swatchHolder, i, last)
-  end
+  local locLab, locBar, locLegend = CompositionBar("Location", ns.LOC_COLORS, ns.LOC_LABELS, actLegend, function(tip, t)
+    tip:AddLine("Where you spent it", 1, 1, 1)
+    tip:AddLine(" ")
+    local known = 0
+    for i, key in ipairs(ns.LOC_KEYS) do
+      local c = ns.LOC_COLORS[i]
+      known = known + t[key]
+      tip:AddDoubleLine(ns.LOC_LABELS[i], FormatTime(t[key]) .. "  (" .. pct(t[key], t.total) .. ")", c[1], c[2], c[3], 1, 1, 1)
+    end
+    if t.total - known > 60 then
+      tip:AddLine(" ")
+      tip:AddDoubleLine("Not recorded (before v1.2)", FormatTime(t.total - known), 0.5, 0.5, 0.5, 0.7, 0.7, 0.7)
+    end
+  end)
+  locLab:ClearAllPoints()
+  locLab:SetPoint("TOPLEFT", actLab, "BOTTOMLEFT", 0, -22)
+  frame.locBar = locBar
+
+  local highlights = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  highlights:SetPoint("TOPLEFT", locLab, "BOTTOMLEFT", 0, -24)
+  highlights:SetPoint("RIGHT", frame, "RIGHT", -20, 0)
+  highlights:SetJustifyH("LEFT")
+  frame.highlights = highlights
 
   -- Tabs
   local tabs = {
@@ -417,8 +572,12 @@ local function BuildWindow()
     if prevTab then
       btn:SetPoint("LEFT", prevTab, "RIGHT", 6, 0)
     else
-      btn:SetPoint("TOPLEFT", swatchHolder, "BOTTOMLEFT", 0, -10)
+      btn:SetPoint("TOPLEFT", highlights, "BOTTOMLEFT", 0, -12)
     end
+    btn.underline = btn:CreateTexture(nil, "OVERLAY")
+    btn.underline:SetHeight(2)
+    btn.underline:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 4, -3)
+    btn.underline:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -4, -3)
     btn:SetScript("OnClick", function() SelectTab(t.id) end)
     tabButtons[t.id] = btn
     prevTab = btn
@@ -426,8 +585,8 @@ local function BuildWindow()
 
   -- Body: holds the three views
   local body = CreateFrame("Frame", nil, frame)
-  body:SetPoint("TOPLEFT", tabButtons.levels, "BOTTOMLEFT", 0, -8)
-  body:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -20, 36)
+  body:SetPoint("TOPLEFT", tabButtons.levels, "BOTTOMLEFT", 0, -10)
+  body:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -20, 34)
 
   views.levels = BuildLevelsView(body)
   views.zones = ns.BuildZonesView(body)
@@ -437,13 +596,12 @@ local function BuildWindow()
 
   -- footer hint
   local hint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-  hint:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 16, 16)
-  hint:SetText("/chrono help  •  hover a row for details")
+  hint:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 20, 16)
+  hint:SetText("Hover anything for details   |   /chrono help")
 
   -- live refresh while shown
   frame:SetScript("OnShow", function(self)
-    local w = self.aggBar:GetWidth()
-    if w and w > 0 then self.aggBar.width = w end
+    UpdateBarWidths()
     ns.Refresh()
     self.elapsed = 0
   end)
@@ -451,8 +609,7 @@ local function BuildWindow()
     self.elapsed = (self.elapsed or 0) + e
     if self.elapsed >= 1 then
       self.elapsed = 0
-      local w = self.aggBar:GetWidth()
-      if w and w > 0 then self.aggBar.width = w end
+      UpdateBarWidths()
       ns.Refresh()
     end
   end)

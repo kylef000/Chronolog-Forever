@@ -7,6 +7,9 @@
     * idle      - the part of "other" spent standing still
     * grouped, crafting - overlapping counters (not exclusive with the above)
     * loading   - time in loading screens (NOT part of `total`)
+    * world / town / instance / pvp - where the time was spent (exclusive,
+      add up to `total` for data recorded since v1.2)
+    * untracked - time at a level from before tracking started (from /played)
     * kills, quests, dungeons, deaths, xp, gold, spent
     * zones     - seconds spent per zone
 
@@ -71,6 +74,9 @@ local state = {
   dungeonEnter = 0,
   dungeonCounted = false,
   bucket = "?",
+  locKind = nil,   -- "instance" / "pvp" while inside one, else nil
+  active = 0,      -- non-AFK seconds this session (for the XP rate)
+  sessionXP = 0,   -- XP gained this session
 }
 ns.state = state
 ns.MAX_LEVEL = MAX_LEVEL
@@ -111,6 +117,7 @@ local NUM_FIELDS = {
   "combat", "travel", "afk", "other", "dead", "total", "idle",
   "kills", "quests", "dungeons", "grouped", "deaths",
   "xp", "gold", "spent", "crafting", "loading",
+  "world", "town", "instance", "pvp", "untracked",
 }
 ns.NUM_FIELDS = NUM_FIELDS
 
@@ -144,7 +151,9 @@ local function EnsureDB()
   end
   local db = ChronologForeverDB
   if type(db.levels) ~= "table" then db.levels = {} end
-  db.version = 2
+  db.version = 3
+  if type(db.options) ~= "table" then db.options = {} end
+  if db.options.readPlayed == nil then db.options.readPlayed = true end
   return db
 end
 ns.EnsureDB = EnsureDB
@@ -189,6 +198,7 @@ local function SyncAccount()
     realm = GetRealmName(),
     class = db.class,
     startLevel = db.startLevel,
+    level = state.currentLevel or UnitLevel("player"),
     levels = db.levels,
     updated = time(),
   }
@@ -197,14 +207,13 @@ end
 -- Wipe all data and re-seed from the current level. Settings are kept.
 function ns.ResetData()
   local old = ChronologForeverDB
-  local keepWidget = old and old.widget
-  local keepWindow = old and old.window
-  local keepMinimap = old and old.minimap
+  local keep = {}
+  for _, k in ipairs({ "widget", "window", "minimap", "options", "paceRef", "chartMode" }) do
+    keep[k] = old and old[k]
+  end
   ChronologForeverDB = nil
   local db = EnsureDB()
-  if keepWidget then db.widget = keepWidget end
-  if keepWindow then db.window = keepWindow end
-  if keepMinimap then db.minimap = keepMinimap end
+  for k, v in pairs(keep) do db[k] = v end
   InitLevels(db)
   SyncAccount()
   state.currentLevel = UnitLevel("player") or 1
@@ -253,6 +262,30 @@ function ns.PerHour(row, field, divisor)
   return (row[field] or 0) / (divisor or 1) / (row.total / 3600)
 end
 
+-- Signed duration: "-4m 10s" / "+12m 03s" (negative = faster / ahead).
+function ns.FormatDelta(sec)
+  sec = sec or 0
+  local sign = sec < 0 and "-" or "+"
+  return sign .. ns.FormatTime(math.abs(sec))
+end
+
+-- Short axis label for a duration: "45m", "1.5h", "12h".
+function ns.FormatShortTime(sec)
+  sec = sec or 0
+  if math.abs(sec) >= 3600 then
+    local h = sec / 3600
+    if math.abs(h) >= 10 or h == floor(h) then return string.format("%dh", floor(h + 0.5)) end
+    return string.format("%.1fh", h)
+  end
+  return string.format("%dm", floor(sec / 60 + 0.5))
+end
+
+-- Time actually spent at a level: tracked time plus any time from before
+-- tracking started (learned from /played).
+function ns.LevelTime(row)
+  return (row.total or 0) + (row.untracked or 0)
+end
+
 local function Pct(row, field)
   if (row.total or 0) < MIN_TOTAL_FOR_RATIO then return 0 end
   return row[field] / row.total * 100
@@ -289,7 +322,54 @@ ns.STATS = {
   { key = "gph",      label = "Gold/hr",  get = function(r) return string.format("%.1fg", ns.PerHour(r, "gold", 10000)) end },
   { key = "crafting", label = "Crafting", get = function(r) return ns.FormatTime(r.crafting) end },
   { key = "dead",     label = "Dead",     get = function(r) return ns.FormatTime(r.dead) end },
+  { key = "eta",      label = "Next lvl", get = function()
+      local t = ns.GetETA and ns.GetETA()
+      return t and ns.FormatTime(t) or "-"
+    end },
+  { key = "pace",     label = "Pace",     get = function()
+      local p = ns.GetPace and ns.GetPace()
+      if not p or p.n == 0 then return "-" end
+      return (p.cum <= 0 and "|cff4cd964" or "|cffff5f57") .. ns.FormatDelta(p.cum) .. "|r"
+    end },
 }
+
+--------------------------------------------------------------------------------
+-- Recent XP rate (for the level ETA): XP per non-AFK hour over the last
+-- 30 minutes of play this session, falling back to this level's average.
+--------------------------------------------------------------------------------
+local RATE_WINDOW = 1800
+local RATE_STEP = 30
+local MIN_RATE_SPAN = 120
+local rateSamples = {}
+
+local function SampleRate()
+  local last = rateSamples[#rateSamples]
+  if last and state.active - last.a < RATE_STEP then return end
+  rateSamples[#rateSamples + 1] = { a = state.active, x = state.sessionXP }
+  while #rateSamples > 1 and state.active - rateSamples[2].a >= RATE_WINDOW do
+    table.remove(rateSamples, 1)
+  end
+end
+
+-- XP per hour and where it came from ("recent" or "level"), or nil.
+function ns.GetXPRate()
+  local first = rateSamples[1]
+  if first then
+    local span = state.active - first.a
+    local gained = state.sessionXP - first.x
+    if span >= MIN_RATE_SPAN and gained > 0 then
+      return gained / span * 3600, "recent"
+    end
+  end
+  local db = ChronologForeverDB
+  if db and db.levels[state.currentLevel] then
+    local row = db.levels[state.currentLevel]
+    if (row.total or 0) >= 300 and (row.xp or 0) > 0 then
+      return row.xp / row.total * 3600, "level"
+    end
+  end
+  return nil
+end
 
 --------------------------------------------------------------------------------
 -- Accumulation ticker
@@ -321,6 +401,7 @@ ticker:SetScript("OnUpdate", function(_, elapsed)
   local afk = Clean(UnitIsAFK("player"))
   local grouped = Clean(IsInGroup()) or Clean(IsInRaid())
   local crafting = ProfessionsFrame and ProfessionsFrame:IsShown()
+  local resting = Clean(IsResting())
   local zone = Clean(GetRealZoneText())
   if not zone or zone == "" then zone = Clean(GetZoneText()) end
   if not zone or zone == "" then zone = "Unknown" end
@@ -364,6 +445,15 @@ ticker:SetScript("OnUpdate", function(_, elapsed)
   if grouped then row.grouped = row.grouped + dt end
   if crafting then row.crafting = row.crafting + dt end
   row.zones[zone] = (row.zones[zone] or 0) + dt
+
+  -- Where: dungeon/raid > battleground/arena > town (rested area) > world.
+  local where = state.locKind or (resting and "town") or "world"
+  row[where] = row[where] + dt
+
+  if not afk then
+    state.active = state.active + dt
+    SampleRate()
+  end
 end)
 
 --------------------------------------------------------------------------------
@@ -386,6 +476,13 @@ end
 local function UpdateInstanceState()
   local inInstance, instanceType = IsInInstance()
   inInstance, instanceType = Clean(inInstance), Clean(instanceType)
+  if inInstance and (instanceType == "party" or instanceType == "raid" or instanceType == "scenario") then
+    state.locKind = "instance"
+  elseif inInstance and (instanceType == "pvp" or instanceType == "arena") then
+    state.locKind = "pvp"
+  else
+    state.locKind = nil
+  end
   if inInstance and instanceType == "party" then
     if not state.inDungeon then
       state.inDungeon = true
@@ -485,13 +582,16 @@ local function OnXP()
   if last then
     local gained = xp - last
     if gained < 0 then gained = (state.lastXPMax or 0) - last + xp end -- leveled up
-    if gained > 0 then
-      local db = ChronologForeverDB
-      if db then
-        local row = GetRow(db, state.currentLevel)
-        row.xp = row.xp + gained
-      end
+    local db = ChronologForeverDB
+    if gained > 0 and db then
+      local row = GetRow(db, state.currentLevel)
+      row.xp = row.xp + gained
+      state.sessionXP = state.sessionXP + gained
     end
+    -- Remember the XP needed for this level (used to estimate time to 60).
+    -- Skipped on the update that crosses a level, when the level may not
+    -- have switched yet.
+    if db and xp >= last then GetRow(db, state.currentLevel).xpMax = xpMax end
   end
   state.lastXP, state.lastXPMax = xp, xpMax
 end
@@ -506,6 +606,55 @@ local function OnMoney()
   if not db then return end
   local row = GetRow(db, state.currentLevel)
   if m > last then row.gold = row.gold + (m - last) else row.spent = row.spent + (last - m) end
+end
+
+--------------------------------------------------------------------------------
+-- /played backfill: the client reports how long you've been at the current
+-- level, including time from before Chronolog-Forever was installed (or while
+-- it was disabled). The missing part is stored as `untracked` so per-level
+-- times and pace comparisons are complete. The chat frames are muted for our
+-- own request so the "Total time played" lines don't show up at every login.
+--------------------------------------------------------------------------------
+local mutedChat = {}
+local playedPending = false
+
+local function UnmuteChat()
+  for _, cf in ipairs(mutedChat) do cf:RegisterEvent("TIME_PLAYED_MSG") end
+  wipe(mutedChat)
+end
+
+local function RequestPlayed()
+  if not RequestTimePlayed or playedPending then return end
+  playedPending = true
+  for i = 1, (NUM_CHAT_WINDOWS or 10) do
+    local cf = _G["ChatFrame" .. i]
+    if cf and cf.IsEventRegistered and cf:IsEventRegistered("TIME_PLAYED_MSG") then
+      cf:UnregisterEvent("TIME_PLAYED_MSG")
+      mutedChat[#mutedChat + 1] = cf
+    end
+  end
+  RequestTimePlayed()
+  -- Never leave chat muted if the reply doesn't come.
+  if C_Timer then
+    C_Timer.After(10, function() playedPending = false; UnmuteChat() end)
+  end
+end
+
+local function OnTimePlayed(totalTime, levelTime)
+  playedPending = false
+  UnmuteChat()
+  totalTime, levelTime = Clean(totalTime), Clean(levelTime)
+  local db = ChronologForeverDB
+  if not db or type(levelTime) ~= "number" then return end
+  db.playedTotal = totalTime
+  local row = GetRow(db, state.currentLevel)
+  local missing = levelTime - row.total
+  -- Small differences are just timing noise between the client and our ticker.
+  if missing > 30 and missing > (row.untracked or 0) then
+    row.untracked = missing
+  end
+  row.full = true -- this level's time is now complete from the start
+  if ns.Refresh then ns.Refresh() end
 end
 
 --------------------------------------------------------------------------------
@@ -525,6 +674,7 @@ ev:RegisterEvent("PLAYER_MONEY")
 ev:RegisterEvent("PLAYER_TARGET_CHANGED")
 ev:RegisterEvent("LFG_COMPLETION_REWARD")
 ev:RegisterEvent("CHAT_MSG_COMBAT_XP_GAIN")
+ev:RegisterEvent("TIME_PLAYED_MSG")
 
 -- Health/flag changes of the current target (cheap: only the "target" unit).
 local targetEv = CreateFrame("Frame")
@@ -543,9 +693,18 @@ ev:SetScript("OnEvent", function(_, event, ...)
     state.currentLevel = UnitLevel("player") or 1
     state.inCombat = UnitAffectingCombat("player") and true or false
     state.lastXP, state.lastXPMax = Clean(UnitXP("player")), Clean(UnitXPMax("player"))
+    if state.lastXPMax and state.currentLevel < MAX_LEVEL then
+      GetRow(db, state.currentLevel).xpMax = state.lastXPMax
+    end
     state.lastMoney = Clean(GetMoney())
     state.ready = true
     UpdateInstanceState()
+    if db.options.readPlayed then
+      if C_Timer then C_Timer.After(3, RequestPlayed) else RequestPlayed() end
+    end
+
+  elseif event == "TIME_PLAYED_MSG" then
+    if state.ready then OnTimePlayed(...) end
 
   elseif event == "PLAYER_LOGOUT" then
     SyncAccount()
@@ -584,7 +743,7 @@ ev:SetScript("OnEvent", function(_, event, ...)
     local newLevel = tonumber((...)) or ((state.currentLevel or 0) + 1)
     state.currentLevel = newLevel
     local db = EnsureDB()
-    GetRow(db, newLevel)
+    GetRow(db, newLevel).full = true -- tracked from the moment it started
     SyncAccount()
     if ns.Refresh then ns.Refresh() end
     if ns.RefreshWidget then ns.RefreshWidget() end
@@ -813,9 +972,10 @@ SlashCmdList["CHRONOLOG"] = function(msg)
     print("  |cffffff00/chrono|r - toggle the main window")
     print("  |cffffff00/chrono widget|r - toggle the current-level widget")
     print("  |cffffff00/chrono widget scale <n>|r / |cffffff00alpha <n>|r / |cffffff00stat <name>|r - widget options")
+    print("  |cffffff00/chrono pace|r - change what your level times are compared against")
     print("  |cffffff00/chrono minimap|r - show/hide the minimap button")
     print("  |cffffff00/chrono export|r - copy your data as CSV")
-    print("  |cffffff00/chrono options|r - open the EllesmereUI settings page")
+    print("  |cffffff00/chrono options|r - open the settings")
     print("  |cffffff00/chrono debug|r - print tracking diagnostics")
     print("  |cffffff00/chrono reset|r - erase all tracked data (asks to confirm)")
   elseif cmd == "reset" and rest == "yes" then
@@ -825,17 +985,14 @@ SlashCmdList["CHRONOLOG"] = function(msg)
     print(TAG .. ": this will erase all tracked data. Type |cffffff00/chrono reset yes|r to confirm.")
   elseif cmd == "widget" then
     WidgetCommand(rest)
+  elseif cmd == "pace" then
+    if ns.CyclePaceRefCommand then ns.CyclePaceRefCommand() end
   elseif cmd == "minimap" then
     if ns.ToggleMinimapButton then ns.ToggleMinimapButton() end
   elseif cmd == "export" then
     if ns.ShowExport then ns.ShowExport() end
   elseif cmd == "options" or cmd == "settings" then
-    if EllesmereUI and EllesmereUI.OpenPlugin and EllesmereUI.IsPluginRegistered
-       and EllesmereUI.IsPluginRegistered(addonName) then
-      EllesmereUI.OpenPlugin(addonName)
-    else
-      print(TAG .. ": settings need EllesmereUI. Use the slash commands instead (/chrono help).")
-    end
+    if ns.OpenSettings then ns.OpenSettings() end
   elseif cmd == "debug" then
     PrintDebug()
   else

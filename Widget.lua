@@ -15,7 +15,7 @@ local FormatTime = ns.FormatTime
 
 local widget
 
-local DEFAULT_STATS = { kills = true, quests = true, dungeons = true, grouped = true }
+local DEFAULT_STATS = { kills = true, quests = true, eta = true, pace = true }
 local STAT_ROWS = 6   -- max lines (two stats per line)
 local BASE_HEIGHT = 56
 local LINE_HEIGHT = 16
@@ -76,7 +76,7 @@ function ns.RefreshWidget()
   widget.data = { lvl = lvl, row = row }
 
   widget.title:SetText("Level " .. lvl)
-  widget.total:SetText("|cffffffff" .. FormatTime(row.total) .. "|r played")
+  widget.total:SetText("|cffffffff" .. FormatTime(ns.LevelTime(row)) .. "|r played")
   ns.UpdateStackedBar(widget.bar, ns.RowValues(row), widget.bar.width or 170)
 
   for i = 1, STAT_ROWS * 2 do
@@ -138,7 +138,7 @@ end
 local function BuildWidget()
   widget = CreateFrame("Frame", "ChronologWidget", UIParent, ns.BACKDROP_TEMPLATE)
   widget:Hide() -- new frames start shown; ToggleWidget decides
-  widget:SetWidth(200)
+  widget:SetWidth(216)
   widget:SetHeight(BASE_HEIGHT + LINE_HEIGHT * 2)
   widget:SetFrameStrata("MEDIUM")
   widget:SetBackdrop({
@@ -177,7 +177,7 @@ local function BuildWidget()
   widget.bar = ns.CreateStackedBar(widget, 12)
   widget.bar:SetPoint("TOPLEFT", widget, "TOPLEFT", 10, -28)
   widget.bar:SetPoint("TOPRIGHT", widget, "TOPRIGHT", -10, -28)
-  widget.bar.width = 180
+  widget.bar.width = 196
 
   -- Stat slots: two per line, filled by LayoutStats.
   widget.stats = {}
@@ -185,7 +185,7 @@ local function BuildWidget()
     local fs = widget:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     local line = math.ceil(i / 2) - 1
     local col = (i - 1) % 2
-    fs:SetPoint("TOPLEFT", widget, "TOPLEFT", 10 + col * 92, -(48 + line * LINE_HEIGHT))
+    fs:SetPoint("TOPLEFT", widget, "TOPLEFT", 10 + col * 100, -(48 + line * LINE_HEIGHT))
     fs:SetJustifyH("LEFT")
     widget.stats[i] = fs
   end

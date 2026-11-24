@@ -104,119 +104,521 @@ function ns.BuildZonesView(parent)
 end
 
 --------------------------------------------------------------------------------
--- Charts: one bar per level for a chosen metric
+-- Charts: one column per level, in several modes
+--   Time   - stacked by activity (+ time from before tracking)
+--   Where  - share of the level spent in the open world / town / dungeons / PvP
+--   Pace   - gain/loss per level against your reference, plus the running total
+--   XP/hr, Kills/hr, Gold/hr - per-level rates with your average
+--   Deaths - deaths per level
 --------------------------------------------------------------------------------
+local MODES = {
+  { id = "time",   label = "Time" },
+  { id = "where",  label = "Where" },
+  { id = "pace",   label = "Pace" },
+  { id = "xph",    label = "XP/hr" },
+  { id = "kph",    label = "Kills/hr" },
+  { id = "gph",    label = "Gold/hr" },
+  { id = "deaths", label = "Deaths" },
+}
+
+local TIME_STEPS = { 60, 120, 300, 600, 900, 1200, 1800, 3600, 7200, 10800, 14400, 21600, 43200, 86400 }
+
+local function TimeStep(x)
+  for _, s in ipairs(TIME_STEPS) do if s >= x then return s end end
+  return math.ceil(x / 86400) * 86400
+end
+
+local function NiceStep(x)
+  if x <= 0 then return 1 end
+  local e = 10 ^ math.floor(math.log10(x))
+  local f = x / e
+  local n = (f <= 1 and 1) or (f <= 2 and 2) or (f <= 2.5 and 2.5) or (f <= 5 and 5) or 10
+  return n * e
+end
+
+local function SignedShortTime(v)
+  if v > 0 then return "+" .. ns.FormatShortTime(v) end
+  if v < 0 then return "-" .. ns.FormatShortTime(-v) end
+  return "0"
+end
+
+local function LegendText(labels, colors)
+  local parts = {}
+  for i, l in ipairs(labels) do parts[#parts + 1] = ns.Hex(colors[i]) .. l .. "|r" end
+  return table.concat(parts, "  ")
+end
+
+-- Build the data for a mode. Returns a spec:
+--   points = { { lvl, segs = { { v, color, gradient } }, tip = fn(tooltip) } }
+--   kind   = "stack" | "diverge";  isTime; fixedMax; minStep
+--   fmt    = axis label formatter;  avg (optional) dashed line
+--   line   = { [i] = value } (optional; running-total line)
+--   caption, empty
+local function BuildSpec(mode, agg, pace)
+  local spec = { points = {}, kind = "stack", fmt = tostring }
+  local cur = (agg.source == nil) and ns.state.currentLevel or nil
+  local accent = { ns.GetAccent() }
+
+  if mode == "time" then
+    spec.isTime, spec.fmt = true, ns.FormatShortTime
+    local sum, n = 0, 0
+    for _, lvl in ipairs(agg.levels) do
+      local row = agg.rows[lvl]
+      local lt = ns.LevelTime(row)
+      if lt > 0 then
+        local segs = {}
+        for i, key in ipairs(ns.KEYS) do segs[#segs + 1] = { row[key], ns.COLORS[i] } end
+        segs[#segs + 1] = { row.untracked or 0, ns.UNTRACKED_COLOR }
+        spec.points[#spec.points + 1] = { lvl = lvl, segs = segs, tip = function(tip)
+          tip:AddLine("Level " .. lvl .. (lvl == cur and " (current)" or ""), 1, 1, 1)
+          tip:AddLine(" ")
+          ns.AddBreakdown(tip, row, agg.avg, pace and pace.levels[lvl])
+        end }
+        if lvl ~= cur then sum, n = sum + lt, n + 1 end
+      end
+    end
+    if n > 1 then spec.avg = sum / n end
+    spec.caption = LegendText(ns.LABELS, ns.COLORS) .. "  " .. ns.Hex(ns.UNTRACKED_COLOR) .. "Before tracking|r"
+      .. "   |cff888888dashed: average level|r"
+    spec.empty = "No tracked time yet."
+
+  elseif mode == "where" then
+    spec.fixedMax, spec.minStep = 100, 25
+    spec.fmt = function(v) return string.format("%d%%", v) end
+    for _, lvl in ipairs(agg.levels) do
+      local row = agg.rows[lvl]
+      local locSum = row.world + row.town + row.instance + row.pvp
+      if row.total > 0 and locSum > 0 then
+        local segs = {}
+        for i, key in ipairs(ns.LOC_KEYS) do
+          segs[#segs + 1] = { row[key] / row.total * 100, ns.LOC_COLORS[i] }
+        end
+        spec.points[#spec.points + 1] = { lvl = lvl, segs = segs, tip = function(tip)
+          tip:AddLine("Level " .. lvl .. " - where you spent it", 1, 1, 1)
+          tip:AddLine(" ")
+          for i, key in ipairs(ns.LOC_KEYS) do
+            local c = ns.LOC_COLORS[i]
+            tip:AddDoubleLine(ns.LOC_LABELS[i], string.format("%s  |cff888888%.0f%%|r",
+              FormatTime(row[key]), row[key] / row.total * 100), c[1], c[2], c[3], 1, 1, 1)
+          end
+          local zones = ns.SortedZones(row.zones, 3)
+          if #zones > 0 then
+            tip:AddLine(" ")
+            for _, z in ipairs(zones) do tip:AddDoubleLine(z.name, FormatTime(z.secs), 1, 1, 1, 0.8, 0.8, 0.8) end
+          end
+        end }
+      end
+    end
+    spec.caption = LegendText(ns.LOC_LABELS, ns.LOC_COLORS)
+    spec.empty = "Location tracking starts with this version - play a little and it fills in."
+
+  elseif mode == "pace" then
+    spec.kind, spec.isTime, spec.fmt = "diverge", true, SignedShortTime
+    spec.line = {}
+    if pace then
+      for lvl = 1, ns.MAX_LEVEL do
+        local p = pace.levels[lvl]
+        if p then
+          local color = p.diff <= 0 and ns.AHEAD_COLOR or ns.BEHIND_COLOR
+          spec.points[#spec.points + 1] = { lvl = lvl, segs = { { p.diff, color } }, tip = function(tip)
+            tip:AddLine("Level " .. lvl, 1, 1, 1)
+            tip:AddDoubleLine("Your time", FormatTime(p.mine), 0.8, 0.8, 0.8, 1, 1, 1)
+            tip:AddDoubleLine((p.refName or "Reference") .. "'s time", FormatTime(p.ref), 0.8, 0.8, 0.8, 1, 1, 1)
+            tip:AddDoubleLine("Difference", ns.ColoredDelta(p.diff), 0.8, 0.8, 0.8, 1, 1, 1)
+            tip:AddDoubleLine("Running total", ns.ColoredDelta(p.cum), 0.8, 0.8, 0.8, 1, 1, 1)
+          end }
+          spec.line[#spec.points] = p.cum
+        end
+      end
+    end
+    spec.caption = "vs " .. (pace and pace.refLabel or "best splits") .. ":  "
+      .. ns.Hex(ns.AHEAD_COLOR) .. "faster|r  " .. ns.Hex(ns.BEHIND_COLOR) .. "slower|r"
+      .. "   |cff" .. ns.AccentHex() .. "line: running total|r"
+    if agg.source == "ALL" then
+      spec.empty = "Pick a single character to see its pace."
+    elseif pace and not pace.hasOthers then
+      spec.empty = "Pace compares your levels with your other characters.\nLevel another character with Chronolog-Forever to unlock it."
+    else
+      spec.empty = "No finished levels to compare yet."
+    end
+
+  else
+    -- Rates and deaths: one accent column per level.
+    local get, avg
+    if mode == "xph" then
+      get, avg, spec.fmt = function(r) return ns.PerHour(r, "xp") end, agg.avg.xph, ns.FormatNumber
+    elseif mode == "kph" then
+      get, avg = function(r) return ns.PerHour(r, "kills") end, agg.avg.kph
+      spec.fmt = function(v) return string.format("%.0f", v) end
+    elseif mode == "gph" then
+      get, avg = function(r) return ns.PerHour(r, "gold", 10000) end, agg.avg.gph
+      spec.fmt = function(v) return v == math.floor(v) and string.format("%dg", v) or string.format("%.1fg", v) end
+    else -- deaths
+      get, spec.minStep = function(r) return r.deaths end, 1
+      spec.fmt = function(v) return string.format("%d", v) end
+    end
+    local color = (mode == "deaths") and ns.COLORS[5] or accent
+    local label
+    for _, m in ipairs(MODES) do if m.id == mode then label = m.label end end
+    for _, lvl in ipairs(agg.levels) do
+      local row = agg.rows[lvl]
+      if row.total >= ns.MIN_TOTAL_FOR_RATIO or (mode == "deaths" and row.total > 0) then
+        local v = get(row)
+        spec.points[#spec.points + 1] = { lvl = lvl, segs = { { v, color, true } }, tip = function(tip)
+          tip:AddLine("Level " .. lvl .. (lvl == cur and " (current)" or ""), 1, 1, 1)
+          tip:AddDoubleLine(label, spec.fmt(v), 0.8, 0.8, 0.8, 1, 1, 1)
+          if avg and avg > 0 then
+            tip:AddDoubleLine("Your average", spec.fmt(avg), 0.6, 0.6, 0.6, 0.8, 0.8, 0.8)
+          end
+          tip:AddDoubleLine("Time at level", FormatTime(ns.LevelTime(row)), 0.6, 0.6, 0.6, 0.8, 0.8, 0.8)
+        end }
+      end
+    end
+    if avg and avg > 0 then
+      spec.avg = avg
+      spec.caption = "|cff888888dashed: your average level|r"
+    else
+      spec.caption = ""
+    end
+    spec.empty = "Not enough data yet - play a level for a minute or two."
+  end
+  return spec
+end
+
 function ns.BuildChartsView(parent)
   local view = CreateFrame("Frame", nil, parent)
   view:SetAllPoints(parent)
 
-  local metricIndex = 1
+  local db = ns.EnsureDB()
+  local mode = db.chartMode or "time"
 
-  local btn = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
-  btn:SetSize(220, 20)
-  btn:SetPoint("TOPLEFT", view, "TOPLEFT", 0, 0)
-  btn:SetScript("OnClick", function()
-    metricIndex = metricIndex % #ns.METRICS + 1
-    if ns.Refresh then ns.Refresh() end
-  end)
-  btn:SetScript("OnEnter", function(self)
-    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    GameTooltip:AddLine("Click to change the metric", 1, 1, 1)
-    GameTooltip:Show()
-  end)
-  btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+  -- Mode selector
+  local modeBtns = {}
+  local prev
+  for _, m in ipairs(MODES) do
+    local b = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    b:SetSize(70, 20)
+    b:SetText(m.label)
+    if prev then b:SetPoint("LEFT", prev, "RIGHT", 4, 0) else b:SetPoint("TOPLEFT", view, "TOPLEFT", 0, 0) end
+    b:SetScript("OnClick", function()
+      mode = m.id
+      ns.EnsureDB().chartMode = m.id
+      if ns.Refresh then ns.Refresh() end
+    end)
+    b.mode = m.id
+    ns.WhenSkinned(function(S) S.Button(b) end)
+    modeBtns[#modeBtns + 1] = b
+    prev = b
+  end
 
-  local maxText = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  maxText:SetPoint("TOPRIGHT", view, "TOPRIGHT", -4, -4)
-
+  -- Plot area (left gutter for axis labels, bottom gutter for level labels)
   local area = CreateFrame("Frame", nil, view)
-  area:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -8)
-  area:SetPoint("BOTTOMRIGHT", view, "BOTTOMRIGHT", -4, 18)
+  area:SetPoint("TOPLEFT", view, "TOPLEFT", 40, -32)
+  area:SetPoint("BOTTOMRIGHT", view, "BOTTOMRIGHT", -6, 40)
   local bg = area:CreateTexture(nil, "BACKGROUND")
   bg:SetAllPoints(true)
-  ns.SetColor(bg, 0, 0, 0, 0.3)
+  ns.SetColor(bg, 0, 0, 0, 0.25)
 
   local empty = view:CreateFontString(nil, "OVERLAY", "GameFontDisable")
   empty:SetPoint("CENTER", area, "CENTER", 0, 0)
-  empty:SetText("Not enough data yet - play a level for a minute or two.")
+  empty:SetWidth(380)
 
-  ns.WhenSkinned(function(S) S.Button(btn) end)
+  local caption = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  caption:SetPoint("BOTTOMLEFT", view, "BOTTOMLEFT", 0, 2)
+  caption:SetJustifyH("LEFT")
+
+  -- Pace reference switcher (only in pace mode)
+  local refBtn = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+  refBtn:SetSize(120, 18)
+  refBtn:SetPoint("BOTTOMRIGHT", view, "BOTTOMRIGHT", -6, 0)
+  refBtn:SetText("Change reference")
+  refBtn:SetScript("OnClick", function() ns.CyclePaceRef() end)
+  refBtn:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_TOP")
+    GameTooltip:AddLine("Pace reference", 1, 1, 1)
+    GameTooltip:AddLine("Best splits = the fastest time any of your other characters took for each level.", 0.8, 0.8, 0.8, true)
+    GameTooltip:AddLine("Click to cycle through best splits and each of your characters.", 0.6, 0.6, 0.6, true)
+    GameTooltip:Show()
+  end)
+  refBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+  ns.WhenSkinned(function(S) S.Button(refBtn) end)
+
   ns.SkinFonts(view)
 
-  local bars = {}
-  local function AcquireBar(i)
-    local bar = bars[i]
-    if bar then return bar end
-    bar = CreateFrame("Frame", nil, area)
-    bar:EnableMouse(true)
-    bar.tex = bar:CreateTexture(nil, "ARTWORK")
-    bar.tex:SetAllPoints(true)
-    bar.label = bar:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    bar.label:SetPoint("TOP", bar, "BOTTOM", 0, -2)
-    bar:SetScript("OnEnter", function(self)
-      self.tex:SetAlpha(1)
-      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-      GameTooltip:AddLine("Level " .. (self.lvl or "?"), 1, 1, 1)
-      GameTooltip:AddDoubleLine(self.metric.label, self.metric.fmt(self.value or 0), 0.8, 0.8, 0.8, 1, 1, 1)
-      if self.row then
-        GameTooltip:AddDoubleLine("Time played", FormatTime(self.row.total), 0.8, 0.8, 0.8, 1, 1, 1)
-      end
-      GameTooltip:Show()
-    end)
-    bar:SetScript("OnLeave", function(self)
-      self.tex:SetAlpha(0.85)
-      GameTooltip:Hide()
-    end)
-    bars[i] = bar
-    return bar
+  -- Pools ---------------------------------------------------------------------
+  local grid, cols, dashes, lines, dots = {}, {}, {}, {}, {}
+
+  local function Grid(i)
+    local g = grid[i]
+    if g then return g end
+    g = {}
+    g.line = area:CreateTexture(nil, "BORDER")
+    g.line:SetHeight(1)
+    g.label = view:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    g.label:SetJustifyH("RIGHT")
+    g.label:SetWidth(36)
+    grid[i] = g
+    return g
   end
 
+  local function Col(i)
+    local c = cols[i]
+    if c then return c end
+    c = CreateFrame("Frame", nil, area)
+    c:EnableMouse(true)
+    c.hl = c:CreateTexture(nil, "BACKGROUND")
+    c.hl:SetAllPoints(true)
+    c.segs = {}
+    c.label = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    c.label:SetPoint("TOP", c, "BOTTOM", 0, -3)
+    c:SetScript("OnEnter", function(self)
+      ns.SetColor(self.hl, 1, 1, 1, 0.08)
+      if self.tip then
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        self.tip(GameTooltip)
+        GameTooltip:Show()
+      end
+    end)
+    c:SetScript("OnLeave", function(self)
+      ns.SetColor(self.hl, 1, 1, 1, self.isCurrent and 0.04 or 0)
+      GameTooltip:Hide()
+    end)
+    cols[i] = c
+    return c
+  end
+
+  local function Seg(c, j)
+    local t = c.segs[j]
+    if t then return t end
+    t = c:CreateTexture(nil, "ARTWORK")
+    c.segs[j] = t
+    return t
+  end
+
+  local function Dash(i)
+    local d = dashes[i]
+    if d then return d end
+    d = area:CreateTexture(nil, "OVERLAY")
+    d:SetSize(6, 1)
+    dashes[i] = d
+    return d
+  end
+  local avgLabel = area:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  avgLabel:SetJustifyH("RIGHT")
+
+  local function Line(i)
+    local l = lines[i]
+    if l then return l end
+    if not area.CreateLine then return nil end
+    l = area:CreateLine(nil, "OVERLAY")
+    lines[i] = l
+    return l
+  end
+  local function Dot(i)
+    local d = dots[i]
+    if d then return d end
+    d = area:CreateTexture(nil, "OVERLAY")
+    d:SetSize(5, 5)
+    dots[i] = d
+    return d
+  end
+
+  local function HideFrom(pool, n)
+    for i = n + 1, #pool do
+      local o = pool[i]
+      if o.line then o.line:Hide(); o.label:Hide() else o:Hide() end
+    end
+  end
+
+  -- Refresh -------------------------------------------------------------------
   function view.Refresh(agg)
-    local metric = ns.METRICS[metricIndex]
-    btn:SetText("Metric: " .. metric.label .. "  >")
-
-    -- Only levels with tracked time get a bar.
-    local points = {}
-    for _, lvl in ipairs(agg.levels) do
-      local row = agg.rows[lvl]
-      if row.total > 0 then
-        points[#points + 1] = { lvl = lvl, row = row, value = metric.get(row) }
-      end
-    end
-
-    local maxV = 0
-    for _, p in ipairs(points) do if p.value > maxV then maxV = p.value end end
-
-    empty:SetShown(#points == 0)
-    maxText:SetText(#points > 0 and ("max " .. metric.fmt(maxV)) or "")
-
-    local width = area:GetWidth()
-    local height = area:GetHeight()
-    if not width or width < 10 then width = 480 end
-    if not height or height < 10 then height = 200 end
-    local n = #points
-    local slot = n > 0 and (width / n) or width
     local r, g, b = ns.GetAccent()
-    local plotH = height - 16
-
-    for i, p in ipairs(points) do
-      local bar = AcquireBar(i)
-      bar.lvl, bar.value, bar.row, bar.metric = p.lvl, p.value, p.row, metric
-      bar:ClearAllPoints()
-      bar:SetPoint("BOTTOMLEFT", area, "BOTTOMLEFT", (i - 1) * slot + 1, 0)
-      bar:SetWidth(math.max(1, slot - 2))
-      bar:SetHeight(math.max(1, (maxV > 0 and p.value / maxV or 0) * plotH))
-      ns.SetColor(bar.tex, r, g, b, 1)
-      bar.tex:SetAlpha(0.85)
-      if n <= 15 or p.lvl % 5 == 0 or i == 1 then
-        bar.label:SetText(p.lvl)
-        bar.label:Show()
-      else
-        bar.label:Hide()
+    for _, btn in ipairs(modeBtns) do
+      local fs = btn:GetFontString()
+      if fs then
+        if btn.mode == mode then fs:SetTextColor(r, g, b) else fs:SetTextColor(1, 1, 1) end
       end
-      bar:Show()
     end
-    for i = n + 1, #bars do bars[i]:Hide() end
+
+    local pace = ns.GetPace(agg.source)
+    local spec = BuildSpec(mode, agg, pace)
+    caption:SetText(spec.caption or "")
+    refBtn:SetShown(mode == "pace" and agg.source ~= "ALL")
+    if mode == "pace" then refBtn:SetText("vs " .. ns.GetPaceRefLabel()) end
+
+    local points = spec.points
+    local n = #points
+    empty:SetShown(n == 0)
+    empty:SetText(spec.empty or "")
+    if n == 0 then
+      HideFrom(grid, 0); HideFrom(cols, 0); HideFrom(dashes, 0); HideFrom(lines, 0); HideFrom(dots, 0)
+      avgLabel:Hide()
+      return
+    end
+
+    -- Value range
+    local maxPos, maxNeg = 0, 0
+    for _, p in ipairs(points) do
+      local pos, neg = 0, 0
+      for _, s in ipairs(p.segs) do
+        if s[1] > 0 then pos = pos + s[1] else neg = neg + s[1] end
+      end
+      if pos > maxPos then maxPos = pos end
+      if neg < maxNeg then maxNeg = neg end
+    end
+    if spec.line then
+      for _, v in pairs(spec.line) do
+        if v > maxPos then maxPos = v end
+        if v < maxNeg then maxNeg = v end
+      end
+    end
+    if spec.avg and spec.avg > maxPos then maxPos = spec.avg end
+
+    local yMin, yMax, step
+    if spec.kind == "diverge" then
+      local m = math.max(maxPos, -maxNeg, 1)
+      step = spec.isTime and TimeStep(m / 2) or NiceStep(m / 2)
+      yMax = step * math.ceil(m / step)
+      yMin = -yMax
+    else
+      local m = spec.fixedMax or math.max(maxPos, 1e-9)
+      step = spec.isTime and TimeStep(m / 4) or NiceStep(m / 4)
+      if spec.minStep and step < spec.minStep then step = spec.minStep end
+      yMin = 0
+      yMax = math.max(step, step * math.ceil(m / step - 1e-9))
+    end
+
+    local W, H = area:GetWidth(), area:GetHeight()
+    if not W or W < 10 then W = 480 end
+    if not H or H < 10 then H = 220 end
+    local function Y(v) return (v - yMin) / (yMax - yMin) * H end
+
+    -- Gridlines
+    local gi = 0
+    local v = yMin
+    while v <= yMax + step * 0.01 and gi < 20 do
+      gi = gi + 1
+      local gl = Grid(gi)
+      local y = Y(v)
+      gl.line:ClearAllPoints()
+      gl.line:SetPoint("BOTTOMLEFT", area, "BOTTOMLEFT", 0, y)
+      gl.line:SetPoint("BOTTOMRIGHT", area, "BOTTOMRIGHT", 0, y)
+      ns.SetColor(gl.line, 1, 1, 1, math.abs(v) < step * 0.01 and 0.35 or 0.08)
+      gl.label:ClearAllPoints()
+      gl.label:SetPoint("RIGHT", area, "BOTTOMLEFT", -4, y)
+      gl.label:SetText(spec.fmt(v))
+      gl.line:Show(); gl.label:Show()
+      v = v + step
+    end
+    HideFrom(grid, gi)
+
+    -- Columns
+    local slot = W / n
+    local barW = math.max(2, math.min(slot * 0.7, 26))
+    local inset = (slot - barW) / 2
+    local cur = (agg.source == nil) and ns.state.currentLevel or nil
+    local every = (n <= 20) and 1 or 5
+    for i, p in ipairs(points) do
+      local c = Col(i)
+      c.tip = p.tip
+      c.isCurrent = (p.lvl == cur)
+      c:ClearAllPoints()
+      c:SetPoint("BOTTOMLEFT", area, "BOTTOMLEFT", (i - 1) * slot, 0)
+      c:SetSize(slot, H)
+      ns.SetColor(c.hl, 1, 1, 1, c.isCurrent and 0.04 or 0)
+
+      local pos, neg = 0, 0
+      local j = 0
+      for _, s in ipairs(p.segs) do
+        local val, color = s[1], s[2]
+        if val ~= 0 then
+          local lo, hi
+          if val > 0 then lo, hi = pos, pos + val; pos = hi else lo, hi = neg + val, neg; neg = lo end
+          local y0, y1 = Y(lo), Y(hi)
+          if y1 - y0 >= 0.5 then
+            j = j + 1
+            local t = Seg(c, j)
+            t:ClearAllPoints()
+            t:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", inset, y0)
+            t:SetSize(barW, y1 - y0)
+            if s[3] and t.SetGradient and CreateColor then
+              ns.SetColor(t, 1, 1, 1, 1)
+              t:SetGradient("VERTICAL", CreateColor(color[1] * 0.45, color[2] * 0.45, color[3] * 0.45, 0.9),
+                CreateColor(color[1], color[2], color[3], 0.95))
+            else
+              ns.SetColor(t, color[1], color[2], color[3], 0.9)
+            end
+            t:Show()
+          end
+        end
+      end
+      for k = j + 1, #c.segs do c.segs[k]:Hide() end
+
+      if every == 1 or p.lvl % every == 0 or i == 1 or i == n or c.isCurrent then
+        c.label:SetText(p.lvl)
+        if c.isCurrent then c.label:SetTextColor(r, g, b) else c.label:SetTextColor(0.55, 0.55, 0.55) end
+        c.label:Show()
+      else
+        c.label:Hide()
+      end
+      c:Show()
+    end
+    HideFrom(cols, n)
+
+    -- Dashed average line
+    local nd = 0
+    if spec.avg and spec.avg > 0 then
+      local y = Y(spec.avg)
+      local x = 0
+      while x < W - 4 do
+        nd = nd + 1
+        local d = Dash(nd)
+        d:ClearAllPoints()
+        d:SetPoint("BOTTOMLEFT", area, "BOTTOMLEFT", x, y)
+        ns.SetColor(d, 1, 1, 1, 0.55)
+        d:Show()
+        x = x + 10
+      end
+      avgLabel:ClearAllPoints()
+      avgLabel:SetPoint("BOTTOMRIGHT", area, "BOTTOMLEFT", W - 2, y + 2)
+      avgLabel:SetText("avg " .. spec.fmt(spec.avg))
+      avgLabel:Show()
+    else
+      avgLabel:Hide()
+    end
+    HideFrom(dashes, nd)
+
+    -- Running-total line (pace)
+    local nl, ndot = 0, 0
+    if spec.line then
+      local px, py
+      for i = 1, n do
+        local val = spec.line[i]
+        if val then
+          local x, y = (i - 0.5) * slot, Y(val)
+          ndot = ndot + 1
+          local d = Dot(ndot)
+          d:ClearAllPoints()
+          d:SetPoint("CENTER", area, "BOTTOMLEFT", x, y)
+          ns.SetColor(d, r, g, b, 1)
+          d:Show()
+          if px then
+            local l = Line(nl + 1)
+            if l then
+              nl = nl + 1
+              l:SetThickness(2)
+              l:SetColorTexture(r, g, b, 0.9)
+              l:SetStartPoint("BOTTOMLEFT", area, px, py)
+              l:SetEndPoint("BOTTOMLEFT", area, x, y)
+              l:Show()
+            end
+          end
+          px, py = x, y
+        end
+      end
+    end
+    HideFrom(lines, nl)
+    HideFrom(dots, ndot)
   end
 
   return view

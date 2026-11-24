@@ -24,7 +24,7 @@ jobs:
           # Stage the addon inside a "Chronolog-Forever" folder so the zip extracts
           # straight into the user's Interface/AddOns directory.
           mkdir -p "build/Chronolog-Forever"
-          cp Core.lua Skin.lua Common.lua Views.lua UI.lua Widget.lua Export.lua Minimap.lua Settings.lua Chronolog-Forever.toc README.md LICENSE "build/Chronolog-Forever/"
+          cp Core.lua Skin.lua Common.lua Pace.lua Views.lua UI.lua Widget.lua Export.lua Minimap.lua Settings.lua Chronolog-Forever.toc README.md LICENSE "build/Chronolog-Forever/"
 
           # Stamp the packaged .toc version to match the tag (without the
           # leading "v"), e.g. tag v1.2.0 -> "## Version: 1.2.0". The repo file
@@ -57,3 +57,48 @@ jobs:
               --title "Chronolog-Forever ${TAG}" \
               --generate-notes
           fi
+
+      # Uploads the same zip to CurseForge. Skipped until it's configured
+      # (see .github/RELEASING.md):
+      #   secret   CF_API_KEY        - CurseForge API token
+      #   variable CF_PROJECT_ID     - the project's numeric ID
+      #   variable CF_GAME_VERSIONS  - comma-separated game version IDs, e.g. "12345"
+      - name: Upload to CurseForge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}
+          CF_PROJECT_ID: ${{ vars.CF_PROJECT_ID }}
+          CF_GAME_VERSIONS: ${{ vars.CF_GAME_VERSIONS }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CF_API_KEY}" ] || [ -z "${CF_PROJECT_ID}" ] || [ -z "${CF_GAME_VERSIONS}" ]; then
+            echo "CurseForge upload not configured - skipping."
+            exit 0
+          fi
+          TAG="${GITHUB_REF_NAME}"
+          ASSET="Chronolog-Forever-${TAG}.zip"
+
+          # Tags like v1.3.0-beta1 / -alpha1 upload as beta / alpha.
+          case "${TAG}" in
+            *alpha*) RELEASE_TYPE=alpha ;;
+            *beta*)  RELEASE_TYPE=beta ;;
+            *)       RELEASE_TYPE=release ;;
+          esac
+
+          CHANGELOG="$(gh release view "${TAG}" --json body -q .body || true)"
+          [ -n "${CHANGELOG}" ] || CHANGELOG="Chronolog-Forever ${TAG}"
+
+          METADATA="$(jq -n \
+            --arg dn "Chronolog-Forever ${TAG}" \
+            --arg cl "${CHANGELOG}" \
+            --arg rt "${RELEASE_TYPE}" \
+            --argjson gv "[${CF_GAME_VERSIONS}]" \
+            '{displayName: $dn, changelog: $cl, changelogType: "markdown", gameVersions: $gv, releaseType: $rt}')"
+
+          curl --fail-with-body -sS \
+            -H "X-Api-Token: ${CF_API_KEY}" \
+            -F "metadata=${METADATA}" \
+            -F "file=@${ASSET}" \
+            "https://wow.curseforge.com/api/projects/${CF_PROJECT_ID}/upload-file"
+          echo
+          echo "Uploaded ${ASSET} to CurseForge project ${CF_PROJECT_ID} as ${RELEASE_TYPE}."

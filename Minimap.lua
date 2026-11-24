@@ -1,25 +1,58 @@
 --[[
-  Chronolog-Forever - Minimap button
-  ----------------------------------
-  A draggable minimap button (left-click: window, right-click: widget) and, when
-  LibDataBroker is available (it ships with EllesmereUI), a launcher object for
-  broker displays. /chrono minimap shows/hides the button.
+  Chronolog-Forever - Minimap button, broker launcher and addon compartment
+  -------------------------------------------------------------------------
+  * If LibDataBroker + LibDBIcon are loaded (most UI packs and many addons ship
+    them), the minimap button is a standard LibDBIcon button, so minimap-button
+    collectors and "hide minimap buttons" settings handle it.
+  * Otherwise a small built-in draggable button is used.
+  * The addon compartment (the addon menu button by the minimap) entry is set
+    up from the .toc and always available.
+  Left-click opens the window, right-click toggles the widget.
+  /chrono minimap shows/hides the button.
 ]]
 
 local addonName, ns = ...
 
 local ICON = "Interface\\Icons\\INV_Misc_PocketWatch_01"
-local button
+local LDB_NAME = "Chronolog-Forever"
+local button     -- built-in button (when LibDBIcon isn't available)
+local dbIcon     -- LibDBIcon, when used
 
 local function GetDB()
   local db = ns.EnsureDB()
-  if type(db.minimap) ~= "table" then db.minimap = { hide = false, angle = 225 } end
-  return db.minimap
+  if type(db.minimap) ~= "table" then db.minimap = { hide = false } end
+  local m = db.minimap
+  -- LibDBIcon stores the position as `minimapPos`; older versions used `angle`.
+  if m.minimapPos == nil then m.minimapPos = m.angle or 225 end
+  return m
 end
 
+local function ShowTooltip(tip)
+  tip:AddLine("Chronolog-Forever", 1, 1, 1)
+  local db = ns.EnsureDB()
+  local lvl = ns.state.currentLevel
+  if db.levels[lvl] then
+    local row = ns.GetRow(db, lvl)
+    tip:AddLine(string.format("Level %d: %s played, %d kills", lvl, ns.FormatTime(ns.LevelTime(row)), row.kills),
+      0.8, 0.8, 0.8)
+    local toNext = ns.GetETA and ns.GetETA()
+    if toNext then tip:AddLine("Next level in " .. ns.FormatTime(toNext), 0.8, 0.8, 0.8) end
+  end
+  tip:AddLine(" ")
+  tip:AddLine("|cffffff00Left-click|r  open the window", 0.8, 0.8, 0.8)
+  tip:AddLine("|cffffff00Right-click|r  toggle the widget", 0.8, 0.8, 0.8)
+end
+
+local function Click(btn)
+  if btn == "RightButton" then ns.ToggleWidget() else ns.ToggleWindow() end
+end
+
+--------------------------------------------------------------------------------
+-- Built-in button (fallback)
+--------------------------------------------------------------------------------
 local function UpdatePosition()
   if not button then return end
-  local a = math.rad(GetDB().angle or 225)
+  local a = math.rad(GetDB().minimapPos or 225)
   local cos, sin = math.cos(a), math.sin(a)
   local w = (Minimap:GetWidth() / 2) + 5
   local h = (Minimap:GetHeight() / 2) + 5
@@ -41,26 +74,8 @@ local function OnDragUpdate()
   px, py = px / scale, py / scale
   local deg = math.deg(math.atan2(py - my, px - mx))
   if deg < 0 then deg = deg + 360 end
-  GetDB().angle = deg
+  GetDB().minimapPos = deg
   UpdatePosition()
-end
-
-local function ShowTooltip(tip)
-  tip:AddLine("Chronolog-Forever", 1, 1, 1)
-  local db = ns.EnsureDB()
-  local lvl = ns.state.currentLevel
-  if db.levels[lvl] then
-    local row = ns.GetRow(db, lvl)
-    tip:AddLine(string.format("Level %d: %s played, %d kills", lvl, ns.FormatTime(row.total), row.kills), 0.8, 0.8, 0.8)
-  end
-  tip:AddLine(" ")
-  tip:AddLine("|cffffff00Left-click|r  open the window", 0.8, 0.8, 0.8)
-  tip:AddLine("|cffffff00Right-click|r  toggle the widget", 0.8, 0.8, 0.8)
-  tip:AddLine("|cffffff00Drag|r  move this button", 0.8, 0.8, 0.8)
-end
-
-local function Click(btn)
-  if btn == "RightButton" then ns.ToggleWidget() else ns.ToggleWindow() end
 end
 
 local function Build()
@@ -98,6 +113,7 @@ local function Build()
   button:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_LEFT")
     ShowTooltip(GameTooltip)
+    GameTooltip:AddLine("|cffffff00Drag|r  move this button", 0.8, 0.8, 0.8)
     GameTooltip:Show()
   end)
   button:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -105,42 +121,72 @@ local function Build()
   UpdatePosition()
 end
 
+--------------------------------------------------------------------------------
+-- Public toggles
+--------------------------------------------------------------------------------
 function ns.IsMinimapShown()
   return not GetDB().hide
 end
 
 -- force = true/false to show/hide; omit to toggle.
-function ns.ToggleMinimapButton(force)
+function ns.ToggleMinimapButton(force, quiet)
   local mdb = GetDB()
   local show
-  if force == nil then show = mdb.hide else show = force and true or false end
+  if force == nil then show = mdb.hide and true or false else show = force and true or false end
   mdb.hide = not show
-  if show then
+  if dbIcon then
+    if show then dbIcon:Show(LDB_NAME) else dbIcon:Hide(LDB_NAME) end
+  elseif show then
     if not button then Build() end
     button:Show()
     UpdatePosition()
   elseif button then
     button:Hide()
   end
-  print("|cff66ccffChronolog-Forever|r: minimap button " .. (show and "shown" or "hidden") .. ".")
+  if not quiet then
+    print("|cff66ccffChronolog-Forever|r: minimap button " .. (show and "shown" or "hidden") .. ".")
+  end
 end
 
--- Broker launcher (optional).
-local LDB = LibStub and LibStub("LibDataBroker-1.1", true)
-if LDB then
-  LDB:NewDataObject("Chronolog-Forever", {
-    type = "launcher",
-    text = "Chronolog-Forever",
-    icon = ICON,
-    OnClick = function(_, btn) Click(btn) end,
-    OnTooltipShow = ShowTooltip,
-  })
+--------------------------------------------------------------------------------
+-- Addon compartment (functions named in the .toc)
+--------------------------------------------------------------------------------
+function ChronologForever_OnAddonCompartmentClick(_, buttonName)
+  Click(buttonName)
 end
 
+function ChronologForever_OnAddonCompartmentEnter(_, menuButton)
+  GameTooltip:SetOwner(menuButton, "ANCHOR_LEFT")
+  ShowTooltip(GameTooltip)
+  GameTooltip:Show()
+end
+
+function ChronologForever_OnAddonCompartmentLeave()
+  GameTooltip:Hide()
+end
+
+--------------------------------------------------------------------------------
+-- Setup at login (every addon, and so any shared libraries, is loaded by then)
+--------------------------------------------------------------------------------
 local login = CreateFrame("Frame")
 login:RegisterEvent("PLAYER_LOGIN")
 login:SetScript("OnEvent", function()
-  if not GetDB().hide then
-    Build()
+  local mdb = GetDB()
+  local LDB = LibStub and LibStub("LibDataBroker-1.1", true)
+  local obj
+  if LDB then
+    obj = LDB:NewDataObject(LDB_NAME, {
+      type = "launcher",
+      text = "Chronolog",
+      icon = ICON,
+      OnClick = function(_, btn) Click(btn) end,
+      OnTooltipShow = ShowTooltip,
+    })
   end
+  local icon = LibStub and LibStub("LibDBIcon-1.0", true)
+  if obj and icon then
+    local ok = pcall(icon.Register, icon, LDB_NAME, obj, mdb)
+    if ok then dbIcon = icon return end
+  end
+  if not mdb.hide then Build() end
 end)

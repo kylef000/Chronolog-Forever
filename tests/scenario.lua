@@ -28,6 +28,21 @@ step("login initialises DB, rows 11..60, account mirror", function()
   eq(ChronologAccountDB.chars["Tester-Realm"].levels, ChronologForeverDB.levels, "shared table")
 end)
 
+step("/played backfill: request at login, chat muted then restored, untracked stored", function()
+  eq(PLAYED_REQUESTS, 0, "not before the timer")
+  RUN_TIMERS()
+  eq(PLAYED_REQUESTS, 1, "requested")
+  eq(ChatFrame1.events.TIME_PLAYED_MSG, nil, "chat muted while waiting")
+  FIRE("TIME_PLAYED_MSG", 100000, 600)
+  eq(ChatFrame1.events.TIME_PLAYED_MSG, true, "chat restored")
+  local r = ns.GetRow(ChronologForeverDB, 11)
+  near(r.untracked, 600, "untracked")
+  eq(r.full, true)
+  eq(ChronologForeverDB.playedTotal, 100000)
+  eq(ns.LevelTime(r), 600)
+  eq(r.xpMax, 1000, "xpMax recorded at login")
+end)
+
 step("idle tick -> other + idle", function()
   TICKS(8, 0.25) -- 2s
   near(row().other, 2); near(row().idle, 2); near(row().total, 2)
@@ -117,6 +132,31 @@ step("gold gained / spent", function()
   W.money = 6500; FIRE("PLAYER_MONEY"); eq(row().spent, 500)
 end)
 
+step("location: world / town / instance / pvp", function()
+  local r = row()
+  local w0, t0, i0, p0 = r.world, r.town, r.instance, r.pvp
+  TICKS(4, 0.25); near(r.world - w0, 1, "world")
+  W.resting = true; TICKS(4, 0.25); near(r.town - t0, 1, "town"); W.resting = false
+  W.instType = "party"; FIRE("PLAYER_ENTERING_WORLD"); TICKS(4, 0.25); near(r.instance - i0, 1, "instance")
+  W.instType = "pvp"; FIRE("PLAYER_ENTERING_WORLD"); TICKS(4, 0.25); near(r.pvp - p0, 1, "pvp")
+  W.instType = nil; FIRE("PLAYER_ENTERING_WORLD")
+  near(r.world + r.town + r.instance + r.pvp, r.total, "locations sum to total")
+end)
+
+step("ETA: recent XP rate -> time to next level and to 60", function()
+  TICKS(600, 0.25) -- 150s of active play
+  W.xp = 400; FIRE("PLAYER_XP_UPDATE")
+  local rate, src = ns.GetXPRate()
+  assert(rate and rate > 0, "rate"); eq(src, "recent")
+  local toNext, toMax, estimated = ns.GetETA()
+  assert(toNext and toNext > 0, "toNext")
+  assert(toMax and toMax > toNext, "toMax")
+  eq(estimated, true, "future levels extrapolated")
+  -- AFK time doesn't count toward the rate
+  local a = NS.state.active; W.afk = true; TICKS(40, 0.25); W.afk = false
+  near(NS.state.active, a, "afk excluded")
+end)
+
 step("level up moves charging to the new level + syncs", function()
   W.level = 12; FIRE("PLAYER_LEVEL_UP", 12); TICKS(4, 0.25)
   near(ns.GetRow(ChronologForeverDB, 12).total, 1)
@@ -149,6 +189,31 @@ step("aggregate: current / other char / ALL", function()
   eq(all.totals.zones.Elwynn, 100)
 end)
 
+step("pace: best splits, specific character, reference cycling", function()
+  ChronologAccountDB.chars["Fast-Realm"] = { name = "Fast", startLevel = 1, level = 20, levels = {
+    [11] = { total = 300, combat = 100, xpMax = 1000 }, [12] = { total = 200 } } }
+  ChronologAccountDB.chars["Slow-Realm"] = { name = "Slow", startLevel = 1, level = 20, levels = {
+    [11] = { total = 5000 } } }
+  local p = ns.GetPace()
+  eq(p.n, 1, "one finished level compared")
+  eq(p.levels[11].ref, 300, "best split = fastest")
+  eq(p.levels[11].refName, "Fast")
+  assert(p.cum > 0, "behind the best split")
+  eq(p.curLevel, 12); eq(p.curRef, 200)
+  ns.SetPaceRef("Slow-Realm")
+  p = ns.GetPace()
+  eq(p.refLabel, "Slow"); assert(p.cum < 0, "ahead of Slow")
+  ns.SetPaceRef("Gone-Realm") -- missing character falls back to best splits
+  eq(ns.GetPace().refLabel, "best splits")
+  ns.SetPaceRef("best")
+  local refs = ns.GetPaceRefs()
+  assert(#refs >= 3, "best + characters")
+  SlashCmdList.CHRONOLOG("pace"); SlashCmdList.CHRONOLOG("pace")
+  ns.SetPaceRef("best")
+  assert(ns.GetPace("ALL") == nil, "no pace for ALL")
+  assert(ns.GetPace("Fast-Realm"), "pace for another character")
+end)
+
 step("main window builds and refreshes all tabs / sources", function()
   SlashCmdList.CHRONOLOG("")
   assert(ChronologFrame and ChronologFrame.shown, "window shown")
@@ -163,25 +228,37 @@ step("main window builds and refreshes all tabs / sources", function()
     end
   end
   ns.viewSource = nil
-  -- charts metric cycling
+  -- every chart mode, for every source
+  local modes = {}
   for _, f in ipairs(ALL_FRAMES) do
-    if f.scripts.OnClick and f.text and f.text:match("^Metric") then
-      for i = 1, #ns.METRICS + 1 do f.scripts.OnClick(f) end
-    end
+    if f.mode and f.scripts.OnClick then modes[#modes + 1] = f end
   end
-  -- character selector
-  for _, f in ipairs(ALL_FRAMES) do
-    if f.scripts.OnClick and f.text and f.text:match("^Character") then
-      f.scripts.OnClick(f); f.scripts.OnClick(f); f.scripts.OnClick(f)
+  eq(#modes, 7, "chart mode buttons")
+  for _, src in ipairs({ false, "Fast-Realm", "ALL" }) do
+    ns.viewSource = src or nil
+    for _, f in ipairs(ALL_FRAMES) do
+      if f.scripts.OnClick and f.text == "Charts" then f.scripts.OnClick(f) end
     end
+    for _, b in ipairs(modes) do b.scripts.OnClick(b) end
   end
+  ns.viewSource = nil
+  for _, b in ipairs(modes) do
+    if b.mode == "pace" then b.scripts.OnClick(b) end
+  end
+  eq(ChronologForeverDB.chartMode, "pace")
+  -- character selector cycles through every source and back
+  local cb = ChronologFrame.charBtn
+  for i = 1, #ns.GetSources() do cb.scripts.OnClick(cb) end
+  eq(ns.viewSource, nil, "back to this character")
   ns.viewSource = nil
 end)
 
-step("row / agg bar / bar tooltips run", function()
+step("row / tile / bar / chart column tooltips run", function()
   for _, f in ipairs(ALL_FRAMES) do
-    if f.scripts.OnEnter and (f.data or f.metric or f == ChronologFrame.aggBar) then
+
+    if f.scripts.OnEnter and f ~= ChronologWidget and f ~= ChronologMinimapButton then
       f.scripts.OnEnter(f)
+      if f.scripts.OnLeave then f.scripts.OnLeave(f) end
     end
   end
 end)
@@ -192,6 +269,7 @@ step("widget: toggle, stats, scale, alpha", function()
   SlashCmdList.CHRONOLOG("widget stat kph")
   SlashCmdList.CHRONOLOG("widget stat xph")
   SlashCmdList.CHRONOLOG("widget stat deaths")
+  assert(ChronologForeverDB.widget.stats.eta and ChronologForeverDB.widget.stats.pace, "eta/pace default on")
   SlashCmdList.CHRONOLOG("widget stat nonsense")
   SlashCmdList.CHRONOLOG("widget scale 1.4")
   SlashCmdList.CHRONOLOG("widget alpha 0.5")
@@ -208,17 +286,45 @@ step("export builds CSV", function()
   local text = ns.BuildExport(ns.GetAggregate(nil))
   assert(text:find("level,total_s"), "header")
   assert(text:find("Durotar"), "zones")
+  assert(text:find("untracked_s"), "new columns")
 end)
 
-step("minimap toggle + click handlers", function()
-  SlashCmdList.CHRONOLOG("minimap"); SlashCmdList.CHRONOLOG("minimap")
-  assert(ChronologMinimapButton)
-  ChronologMinimapButton.scripts.OnClick(ChronologMinimapButton, "LeftButton")
-  ChronologMinimapButton.scripts.OnClick(ChronologMinimapButton, "RightButton")
-  ChronologMinimapButton.scripts.OnEnter(ChronologMinimapButton)
-  ChronologMinimapButton.scripts.OnDragStart(ChronologMinimapButton)
-  ChronologMinimapButton.scripts.OnUpdate(ChronologMinimapButton, 0.01)
-  ChronologMinimapButton.scripts.OnDragStop(ChronologMinimapButton)
+step("minimap button (built-in or LibDBIcon) + addon compartment", function()
+  if WITH_EUI then
+    assert(DBICON and LDB_OBJ, "LibDBIcon used when available")
+    assert(not ChronologMinimapButton, "no built-in button")
+    SlashCmdList.CHRONOLOG("minimap"); eq(DBICON.shown, false)
+    SlashCmdList.CHRONOLOG("minimap"); eq(DBICON.shown, true)
+    LDB_OBJ.OnClick(nil, "LeftButton"); LDB_OBJ.OnTooltipShow(GameTooltip)
+  else
+    SlashCmdList.CHRONOLOG("minimap"); SlashCmdList.CHRONOLOG("minimap")
+    assert(ChronologMinimapButton)
+    ChronologMinimapButton.scripts.OnClick(ChronologMinimapButton, "LeftButton")
+    ChronologMinimapButton.scripts.OnClick(ChronologMinimapButton, "RightButton")
+    ChronologMinimapButton.scripts.OnEnter(ChronologMinimapButton)
+    ChronologMinimapButton.scripts.OnDragStart(ChronologMinimapButton)
+    ChronologMinimapButton.scripts.OnUpdate(ChronologMinimapButton, 0.01)
+    ChronologMinimapButton.scripts.OnDragStop(ChronologMinimapButton)
+  end
+  ChronologForever_OnAddonCompartmentClick("Chronolog-Forever", "LeftButton")
+  ChronologForever_OnAddonCompartmentEnter("Chronolog-Forever", UIParent)
+  ChronologForever_OnAddonCompartmentLeave()
+end)
+
+step("Blizzard settings page: every setting reads and writes", function()
+  local expected = { "Minimap", "ReadPlayed", "PaceRef", "WidgetShown", "WidgetScale", "WidgetAlpha", "Stat_eta" }
+  for _, k in ipairs(expected) do assert(PROXIES["ChronologForever_" .. k], "missing setting " .. k) end
+  PROXIES.ChronologForever_ReadPlayed.set(false); eq(PROXIES.ChronologForever_ReadPlayed.get(), false)
+  PROXIES.ChronologForever_ReadPlayed.set(true)
+  PROXIES.ChronologForever_WidgetScale.set(1.25); eq(PROXIES.ChronologForever_WidgetScale.get(), 1.25)
+  PROXIES.ChronologForever_Stat_dead.set(true); eq(ChronologForeverDB.widget.stats.dead, true)
+  PROXIES.ChronologForever_PaceRef.set("Fast-Realm"); eq(PROXIES.ChronologForever_PaceRef.get(), "Fast-Realm")
+  PROXIES.ChronologForever_PaceRef.set("best")
+  local opts = DROPDOWNS.ChronologForever_PaceRef()
+  assert(#opts >= 3, "dropdown lists references")
+  PROXIES.ChronologForever_Minimap.set(false); eq(PROXIES.ChronologForever_Minimap.get(), false)
+  PROXIES.ChronologForever_Minimap.set(true)
+  if not WITH_EUI then SlashCmdList.CHRONOLOG("options"); assert(SETTINGS_OPENED, "opened Blizzard settings") end
 end)
 
 step("debug, help, options, reset confirm", function()
@@ -241,9 +347,11 @@ step("settings page builds (EllesmereUI mock)", function()
 end)
 
 step("reset wipes data, keeps settings, re-syncs account", function()
+  ChronologForeverDB.paceRef = "Fast-Realm"
   local keepScale = ChronologForeverDB.widget.scale
   SlashCmdList.CHRONOLOG("reset yes")
   eq(ChronologForeverDB.widget.scale, keepScale)
+  eq(ChronologForeverDB.paceRef, "Fast-Realm", "pace ref kept")
   eq(ChronologAccountDB.chars["Tester-Realm"].levels, ChronologForeverDB.levels, "resynced")
   eq(row().total, 0)
 end)

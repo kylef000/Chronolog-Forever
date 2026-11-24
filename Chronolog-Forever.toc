@@ -1,15 +1,21 @@
 ## Interface: 16001
 ## Title: Chronolog-Forever
-## Notes: Tracks per-level time (combat, travel, AFK, dead), kills, XP, gold and zones, with a stats window, charts, widget and export.
+## Notes: Tracks per-level time (combat, travel, AFK, dead), where you spent it, kills, XP and gold, with pace splits, level ETA, charts, a widget and export.
 ## Author: Me and my pal Claude
-## Version: 1.1
-## OptionalDeps: EllesmereUI
+## Version: 1.2
+## IconTexture: Interface\Icons\INV_Misc_PocketWatch_01
+## AddonCompartmentFunc: ChronologForever_OnAddonCompartmentClick
+## AddonCompartmentFuncOnEnter: ChronologForever_OnAddonCompartmentEnter
+## AddonCompartmentFuncOnLeave: ChronologForever_OnAddonCompartmentLeave
+## OptionalDeps: EllesmereUI, LibDataBroker-1.1, LibDBIcon-1.0
+## X-Website: https://github.com/kylef000/Chronolog-Forever
 ## SavedVariables: ChronologAccountDB
 ## SavedVariablesPerCharacter: ChronologForeverDB, ChronologDB
 
 Core.lua
 Skin.lua
 Common.lua
+Pace.lua
 Views.lua
 UI.lua
 Widget.lua

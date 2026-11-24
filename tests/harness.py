@@ -3,7 +3,7 @@ from lupa.lua51 import LuaRuntime
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-FILES = "Core Skin Common Views UI Widget Export Minimap Settings".split()
+FILES = "Core Skin Common Pace Views UI Widget Export Minimap Settings".split()
 WITH_EUI = len(sys.argv) > 1 and sys.argv[1] == "eui"
 
 lua = LuaRuntime(unpack_returned_tuples=True)
@@ -35,8 +35,10 @@ local function NewObj(kind, name)
     if k == "IsShown" then return function(self) return self.shown end end
     if k == "SetShown" then return function(self, v) self.shown = v and true or false end end
     if k == "RegisterEvent" then return function(self, e) self.events[e] = true end end
+    if k == "UnregisterEvent" then return function(self, e) self.events[e] = nil end end
+    if k == "IsEventRegistered" then return function(self, e) return self.events[e] or false end end
     if k == "RegisterUnitEvent" then return function(self, e) self.events[e] = true end end
-    if k == "CreateFontString" or k == "CreateTexture" then return function(self) return NewObj("fs") end end
+    if k == "CreateFontString" or k == "CreateTexture" or k == "CreateLine" then return function(self) return NewObj("fs") end end
     if k == "GetFontString" then return function(self) return NewObj("fs") end end
     if k == "SetText" then return function(self, s) self.text = s end end
     if k == "GetText" then return function(self) return self.text end end
@@ -56,6 +58,7 @@ end
 
 function CreateFrame(kind, name, parent, template) return NewObj(kind, name) end
 UIParent = NewObj("Frame"); Minimap = NewObj("Frame"); GameTooltip = NewObj("Frame")
+ChatFrame1 = NewObj("Frame"); ChatFrame1.events.TIME_PLAYED_MSG = true
 ChatFontNormal = {}
 UISpecialFrames = {}
 tinsert = table.insert
@@ -96,7 +99,38 @@ function UnitIsPlayer() return false end
 function UnitIsDead(u) return W.targetDead end
 function UnitCanAttack() return true end
 function UnitIsTapDenied() return false end
-function IsInInstance() return false, "none" end
+function IsInInstance() if W.instType then return true, W.instType end return false, "none" end
+function IsResting() return W.resting end
+function CreateColor(r, g, b, a) return { r = r, g = g, b = b, a = a } end
+TIMERS = {}
+C_Timer = { After = function(sec, fn) TIMERS[#TIMERS + 1] = fn end }
+function RUN_TIMERS() local t = TIMERS; TIMERS = {}; for _, fn in ipairs(t) do fn() end end
+PLAYED_REQUESTS = 0
+function RequestTimePlayed() PLAYED_REQUESTS = PLAYED_REQUESTS + 1 end
+NUM_CHAT_WINDOWS = 1
+
+-- Blizzard Settings API mock: records proxy settings so tests can drive them.
+local AUTO = setmetatable({}, {})
+getmetatable(AUTO).__index = function() return AUTO end
+getmetatable(AUTO).__call = function() return AUTO, AUTO end
+PROXIES, DROPDOWNS = {}, {}
+Settings = setmetatable({
+  VarType = { Boolean = "boolean", Number = "number", String = "string" },
+  RegisterProxySetting = function(cat, var, vt, name, def, get, set)
+    PROXIES[var] = { get = get, set = set }
+    return { var = var }
+  end,
+  CreateDropdown = function(cat, setting, getOptions) DROPDOWNS[setting.var] = getOptions end,
+  CreateControlTextContainer = function()
+    local data = {}
+    return { Add = function(self, v, l) data[#data + 1] = { value = v, label = l } end,
+             GetData = function() return data end }
+  end,
+  OpenToCategory = function(id) SETTINGS_OPENED = id end,
+}, { __index = function() return AUTO end })
+CreateSettingsButtonInitializer = AUTO
+CreateSettingsListSectionHeaderInitializer = AUTO
+MinimalSliderWithSteppersMixin = AUTO
 COMBATLOG_XPGAIN_FIRSTPERSON = "%s dies, you gain %d experience."
 SlashCmdList = {}
 
@@ -129,6 +163,17 @@ EllesmereUI = {
   IsSearchPrebuild = function() return false end,
 }
 function RUN_SKIN() if pending then pending(S) end end
+
+-- LibStub with LibDataBroker + LibDBIcon (as shipped by UI packs)
+local libs = {
+  ["LibDataBroker-1.1"] = { NewDataObject = function(self, name, obj) LDB_OBJ = obj; return obj end },
+  ["LibDBIcon-1.0"] = {
+    Register = function(self, name, obj, db) DBICON = { name = name, db = db, shown = not db.hide } end,
+    Show = function(self, name) DBICON.shown = true end,
+    Hide = function(self, name) DBICON.shown = false end,
+  },
+}
+LibStub = setmetatable({}, { __call = function(self, name, silent) return libs[name] end })
 '''
 
 lua.execute(MOCK)
