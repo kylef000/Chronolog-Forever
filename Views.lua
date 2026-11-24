@@ -168,6 +168,7 @@ local function BuildSpec(mode, agg, pace)
       if lt > 0 then
         local segs = {}
         for i, key in ipairs(ns.KEYS) do segs[#segs + 1] = { row[key], ns.COLORS[i] } end
+        segs[#segs + 1] = { row.lost or 0, ns.LOST_COLOR }
         segs[#segs + 1] = { row.untracked or 0, ns.UNTRACKED_COLOR }
         spec.points[#spec.points + 1] = { lvl = lvl, segs = segs, tip = function(tip)
           tip:AddLine("Level " .. lvl .. (lvl == cur and " (current)" or ""), 1, 1, 1)
@@ -178,8 +179,9 @@ local function BuildSpec(mode, agg, pace)
       end
     end
     if n > 1 then spec.avg = sum / n end
-    spec.caption = LegendText(ns.LABELS, ns.COLORS) .. "  " .. ns.Hex(ns.UNTRACKED_COLOR) .. "Before tracking|r"
-      .. "   |cff888888dashed: average level|r"
+    spec.caption = LegendText(ns.LABELS, ns.COLORS) .. "  " .. ns.Hex(ns.LOST_COLOR) .. "Not recorded|r  "
+      .. ns.Hex(ns.UNTRACKED_COLOR) .. "Before tracking|r"
+      .. "   |cff888888dashed: avg|r"
     spec.empty = "No tracked time yet."
 
   elseif mode == "where" then

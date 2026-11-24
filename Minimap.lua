@@ -38,6 +38,7 @@ local function ShowTooltip(tip)
     local toNext = ns.GetETA and ns.GetETA()
     if toNext then tip:AddLine("Next level in " .. ns.FormatTime(toNext), 0.8, 0.8, 0.8) end
   end
+  ns.AddUnsavedLine(tip)
   tip:AddLine(" ")
   tip:AddLine("|cffffff00Left-click|r  open the window", 0.8, 0.8, 0.8)
   tip:AddLine("|cffffff00Right-click|r  toggle the widget", 0.8, 0.8, 0.8)

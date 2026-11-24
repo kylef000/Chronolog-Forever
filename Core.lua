@@ -10,6 +10,9 @@
     * world / town / instance / pvp - where the time was spent (exclusive,
       add up to `total` for data recorded since v1.2)
     * untracked - time at a level from before tracking started (from /played)
+    * lost      - time from an unsaved session (crash etc.), recovered at the
+      next login; recKills/recQuests/recDeaths are the recovered counts
+      (already included in kills/quests/deaths). See Recovery.lua.
     * kills, quests, dungeons, deaths, xp, gold, spent
     * zones     - seconds spent per zone
 
@@ -118,6 +121,7 @@ local NUM_FIELDS = {
   "kills", "quests", "dungeons", "grouped", "deaths",
   "xp", "gold", "spent", "crafting", "loading",
   "world", "town", "instance", "pvp", "untracked",
+  "lost", "recKills", "recQuests", "recDeaths",
 }
 ns.NUM_FIELDS = NUM_FIELDS
 
@@ -283,7 +287,7 @@ end
 -- Time actually spent at a level: tracked time plus any time from before
 -- tracking started (learned from /played).
 function ns.LevelTime(row)
-  return (row.total or 0) + (row.untracked or 0)
+  return (row.total or 0) + (row.untracked or 0) + (row.lost or 0)
 end
 
 local function Pct(row, field)
@@ -341,6 +345,7 @@ local RATE_WINDOW = 1800
 local RATE_STEP = 30
 local MIN_RATE_SPAN = 120
 local rateSamples = {}
+ns.rateSamples = rateSamples -- carried across /reload by Recovery.lua
 
 local function SampleRate()
   local last = rateSamples[#rateSamples]
@@ -647,8 +652,21 @@ local function OnTimePlayed(totalTime, levelTime)
   local db = ChronologForeverDB
   if not db or type(levelTime) ~= "number" then return end
   db.playedTotal = totalTime
+  if type(totalTime) == "number" then
+    state.playedBase, state.playedBaseAt = totalTime, GetTime()
+  end
+
+  -- First reply this session: put back anything an unsaved session (crash,
+  -- killed client, addon disabled) did since the last save. See Recovery.lua.
+  if not state.recoveryChecked then
+    state.recoveryChecked = true
+    if ns.RecoverUnsaved then ns.RecoverUnsaved(totalTime, levelTime) end
+  end
+
+  -- Whatever is still missing at this level is from before tracking started.
+  -- /played includes loading screens, so those count as covered too.
   local row = GetRow(db, state.currentLevel)
-  local missing = levelTime - row.total
+  local missing = levelTime - (row.total + row.lost + row.loading)
   -- Small differences are just timing noise between the client and our ticker.
   if missing > 30 and missing > (row.untracked or 0) then
     row.untracked = missing
@@ -688,9 +706,10 @@ ev:SetScript("OnEvent", function(_, event, ...)
   if event == "PLAYER_LOGIN" then
     playerGUID = UnitGUID("player")
     local db = EnsureDB()
+    state.currentLevel = UnitLevel("player") or 1
+    state.sessionStart = GetTime()
     InitLevels(db)
     SyncAccount()
-    state.currentLevel = UnitLevel("player") or 1
     state.inCombat = UnitAffectingCombat("player") and true or false
     state.lastXP, state.lastXPMax = Clean(UnitXP("player")), Clean(UnitXPMax("player"))
     if state.lastXPMax and state.currentLevel < MAX_LEVEL then
@@ -935,6 +954,12 @@ local function PrintDebug()
   Dbg("kill pattern:", KILL_XP_PATTERN)
   Dbg("last XP chat line:", state.lastXPMsg or "(none yet)")
   Dbg("tracked targets:", trackedCount)
+  Dbg("unsaved for:", state.sessionStart and ns.FormatTime(GetTime() - state.sessionStart) or "?")
+  local cp = ChronologForeverDB and ChronologForeverDB.checkpoint
+  Dbg("last save checkpoint:", cp and string.format("level %s, played %s, %s",
+    tostring(cp.level), cp.played and ns.FormatTime(cp.played) or "?",
+    cp.stats and cp.stats.kills and "statistics available" or "no statistics") or "(none yet)")
+  Dbg("XP rate window:", string.format("%d samples, %s active", #rateSamples, ns.FormatTime(state.active)))
 end
 
 --------------------------------------------------------------------------------

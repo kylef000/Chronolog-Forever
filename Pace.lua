@@ -66,6 +66,8 @@ local function CompleteTime(c, L)
   local row = c.levels[L]
   if not row or not c.level or L >= c.level then return nil end
   if not (L > (c.startLevel or MAX_LEVEL) or row.full) then return nil end
+  -- Time split across several levels after a crash is a guess; don't race it.
+  if row.estimated then return nil end
   local t = LevelTime(row)
   if t <= 0 then return nil end
   return t
@@ -203,6 +205,12 @@ local function Extrapolate(known, L)
   local slope = (known[hi] - known[lo]) / (hi - lo)
   if L < lo then return math.max(known[lo] - slope * (lo - L), 1) end
   return known[hi] + slope * (L - hi)
+end
+
+-- XP needed to go from level L to L+1 (known or estimated), or nil.
+function ns.XPForLevel(L)
+  local known = KnownXPTable()
+  return known[L] or Extrapolate(known, L)
 end
 
 -- Seconds of play to the next level, seconds to max level (or nil), whether

@@ -37,6 +37,8 @@ ns.LOC_COLORS = {
 
 -- Time from before tracking (from /played).
 ns.UNTRACKED_COLOR = { 0.32, 0.32, 0.36 }
+-- Time recovered from an unsaved session (crash etc.); activity unknown.
+ns.LOST_COLOR = { 0.48, 0.38, 0.30 }
 
 ns.AHEAD_COLOR = { 0.30, 0.85, 0.40 }
 ns.BEHIND_COLOR = { 1.00, 0.37, 0.34 }
@@ -157,7 +159,14 @@ function ns.AddBreakdown(tip, row, avg, pace)
   tip:AddDoubleLine("Tracked time", FormatTime(row.total), GRAY, GRAY, GRAY, 1, 1, 1)
   if (row.untracked or 0) > 0 then
     tip:AddDoubleLine("Before tracking (from /played)", FormatTime(row.untracked), 0.6, 0.6, 0.6, 0.8, 0.8, 0.8)
-    tip:AddDoubleLine("Time at this level", FormatTime(ns.LevelTime(row)), GRAY, GRAY, GRAY, 1, 1, 1)
+  end
+  if (row.lost or 0) > 0 then
+    local c = ns.LOST_COLOR
+    tip:AddDoubleLine("Not recorded (unsaved session)", FormatTime(row.lost), c[1] + 0.2, c[2] + 0.2, c[3] + 0.2, 0.8, 0.8, 0.8)
+  end
+  if (row.untracked or 0) > 0 or (row.lost or 0) > 0 then
+    tip:AddDoubleLine("Time at this level", FormatTime(ns.LevelTime(row))
+      .. (row.estimated and "  |cff888888(estimated)|r" or ""), GRAY, GRAY, GRAY, 1, 1, 1)
   end
   tip:AddDoubleLine("Grouped", FormatTime(row.grouped), GRAY, GRAY, GRAY, 1, 1, 1)
   if row.crafting > 0 then
@@ -180,10 +189,13 @@ function ns.AddBreakdown(tip, row, avg, pace)
   end
 
   tip:AddLine(" ")
-  tip:AddDoubleLine("Mobs killed", tostring(row.kills), GRAY, GRAY, GRAY, 1, 1, 1)
-  tip:AddDoubleLine("Quests turned in", tostring(row.quests), GRAY, GRAY, GRAY, 1, 1, 1)
+  local function Rec(n)
+    return (n or 0) > 0 and ("  |cff888888(" .. n .. " recovered)|r") or ""
+  end
+  tip:AddDoubleLine("Mobs killed", tostring(row.kills) .. Rec(row.recKills), GRAY, GRAY, GRAY, 1, 1, 1)
+  tip:AddDoubleLine("Quests turned in", tostring(row.quests) .. Rec(row.recQuests), GRAY, GRAY, GRAY, 1, 1, 1)
   tip:AddDoubleLine("Dungeons completed", tostring(row.dungeons), GRAY, GRAY, GRAY, 1, 1, 1)
-  tip:AddDoubleLine("Deaths", tostring(row.deaths), GRAY, GRAY, GRAY, 1, 1, 1)
+  tip:AddDoubleLine("Deaths", tostring(row.deaths) .. Rec(row.recDeaths), GRAY, GRAY, GRAY, 1, 1, 1)
   tip:AddDoubleLine("XP gained", ns.FormatNumber(row.xp), GRAY, GRAY, GRAY, 1, 1, 1)
   tip:AddDoubleLine("Gold gained / spent", ns.FormatGold(row.gold) .. " / " .. ns.FormatGold(row.spent),
     GRAY, GRAY, GRAY, 1, 1, 1)

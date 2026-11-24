@@ -3,7 +3,7 @@ from lupa.lua51 import LuaRuntime
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-FILES = "Core Skin Common Pace Views UI Widget Export Minimap Settings".split()
+FILES = "Core Skin Common Pace Recovery Views UI Widget Export Minimap Settings".split()
 WITH_EUI = len(sys.argv) > 1 and sys.argv[1] == "eui"
 
 lua = LuaRuntime(unpack_returned_tuples=True)
@@ -108,6 +108,13 @@ function RUN_TIMERS() local t = TIMERS; TIMERS = {}; for _, fn in ipairs(t) do f
 PLAYED_REQUESTS = 0
 function RequestTimePlayed() PLAYED_REQUESTS = PLAYED_REQUESTS + 1 end
 NUM_CHAT_WINDOWS = 1
+W.stats = { kills = 100, quests = 50, deaths = 3 }
+local STAT_MAP = { [1197] = "kills", [98] = "quests", [60] = "deaths" }
+function GetStatistic(id) local k = STAT_MAP[id]; return k and tostring(W.stats[k]) or "--" end
+StaticPopupDialogs = {}
+function StaticPopup_Show(name, arg) POPUP = { name = name, arg = arg } end
+function ReloadUI() RELOADED = true end
+function InCombatLockdown() return W.combat end
 
 -- Blizzard Settings API mock: records proxy settings so tests can drive them.
 local AUTO = setmetatable({}, {})

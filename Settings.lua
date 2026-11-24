@@ -55,6 +55,10 @@ local function BuildBlizzardSettings()
     "Fills in the time you spent at your current level before Chronolog-Forever was installed. The /played chat lines are hidden for this request.",
     function() return ns.EnsureDB().options.readPlayed and true or false end,
     function(v) ns.EnsureDB().options.readPlayed = v and true or false end)
+  Checkbox(category, "SavePrompt", "Offer to save after each level-up",
+    "Addon data is only written to disk on logout or /reload. This offers a one-click save (a quick UI reload) after each level-up, outside combat. Even without it, a crash is mostly recovered at your next login.",
+    function() return ns.EnsureDB().options.savePrompt and true or false end,
+    function(v) ns.EnsureDB().options.savePrompt = v and true or false end)
 
   local dropdown = Settings.CreateDropdown or Settings.CreateDropDown
   if dropdown and Settings.CreateControlTextContainer then
@@ -148,6 +152,9 @@ local function BuildPage(pageName, parent, yOffset)
     _, h = W:Toggle(parent, "Read /played at login (fills in time from before install)", y,
       function() return ns.EnsureDB().options.readPlayed and true or false end,
       function(v) ns.EnsureDB().options.readPlayed = v and true or false end); y = y - h
+    _, h = W:Toggle(parent, "Offer to save (quick reload) after each level-up", y,
+      function() return ns.EnsureDB().options.savePrompt and true or false end,
+      function(v) ns.EnsureDB().options.savePrompt = v and true or false end); y = y - h
     _, h = W:Button(parent, "Change pace reference (best splits / each character)", y,
       function() PaceRefPrint(ns.CyclePaceRef()) end); y = y - h
     _, h = W:Button(parent, "Open the Chronolog-Forever window", y,

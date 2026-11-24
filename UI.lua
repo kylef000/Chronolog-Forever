@@ -158,12 +158,15 @@ local function RefreshTiles(agg, pace)
   local r, g, b = ns.GetAccent()
   for _, tile in pairs(tiles) do ns.SetColor(tile.edge, r, g, b, 0.9) end
 
-  local played = t.total + t.untracked
+  local played = t.total + t.untracked + t.lost
   SetTile("played", FormatTime(played),
-    t.untracked > 0 and ("tracked " .. ns.FormatShortTime(t.total)) or (agg.startLevel and ("since Lv " .. agg.startLevel) or ""),
+    played > t.total and ("tracked " .. ns.FormatShortTime(t.total)) or (agg.startLevel and ("since Lv " .. agg.startLevel) or ""),
     function(tip)
       tip:AddLine("Time played", 1, 1, 1)
       tip:AddDoubleLine("Tracked by Chronolog", FormatTime(t.total), 0.8, 0.8, 0.8, 1, 1, 1)
+      if t.lost > 0 then
+        tip:AddDoubleLine("Recovered from unsaved sessions", FormatTime(t.lost), 0.6, 0.6, 0.6, 0.8, 0.8, 0.8)
+      end
       if t.untracked > 0 then
         tip:AddDoubleLine("Before tracking (from /played)", FormatTime(t.untracked), 0.6, 0.6, 0.6, 0.8, 0.8, 0.8)
       end
@@ -175,6 +178,7 @@ local function RefreshTiles(agg, pace)
         tip:AddLine(" ")
         tip:AddDoubleLine("/played (whole character)", FormatTime(db.playedTotal), 0.6, 0.6, 0.6, 0.8, 0.8, 0.8)
       end
+      if agg.source == nil then ns.AddUnsavedLine(tip) end
     end)
   SetTile("kills", ns.FormatNumber(t.kills), string.format("%.0f / hr", rate(t.kills)))
   SetTile("quests", ns.FormatNumber(t.quests), t.dungeons .. (t.dungeons == 1 and " dungeon" or " dungeons"))

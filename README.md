@@ -45,6 +45,25 @@ so the level you install on isn't cut short. (Levels before that aren't
 available from the game.) The `/played` chat lines are hidden for this request.
 Turn it off in the settings if you prefer.
 
+## If the game crashes
+
+WoW only writes addon data to disk on logout, `/reload` or a normal exit, so a
+crash loses whatever was tracked since then. Chronolog-Forever limits the
+damage. Each time it saves, it notes the game's own counters, which survive a
+crash: `/played`, level, XP, gold, and your kill/quest/death statistics. At the
+next login it compares them with the live values and puts back what the unsaved
+session did:
+
+- **Time** comes back as **Not recorded** (the game can't say what you were
+  doing).
+- **XP, gold, kills, quests and deaths** come back on the right level.
+- If you levelled during that session, its time is split across those levels
+  by XP. Those levels are marked *estimated* and left out of pace comparisons.
+
+A short chat note tells you what was recovered. `/reload` is a quick manual
+save and doesn't reset your ETA. There's also an optional "offer to save after
+each level-up" setting.
+
 ## Pace and ETA
 
 - **Pace**: every level you finish is compared with your **best splits**, the

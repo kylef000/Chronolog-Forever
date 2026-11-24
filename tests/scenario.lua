@@ -346,6 +346,114 @@ step("settings page builds (EllesmereUI mock)", function()
   end
 end)
 
+local function DeepCopy(t)
+  if type(t) ~= "table" then return t end
+  local c = {}
+  for k, v in pairs(t) do c[k] = DeepCopy(v) end
+  return c
+end
+
+-- Save (logout), play an unsaved session, "crash" back to the saved file,
+-- then log in again and answer the /played request.
+local function CrashAndRelog(play)
+  FIRE("PLAYER_LOGOUT")
+  local saved = DeepCopy(ChronologForeverDB)
+  local cp = saved.checkpoint
+  local lostSecs, levelTimeLost = play() -- mutates W (the game), not the DB
+  ChronologForeverDB = saved
+  NS.state.recoveryChecked, NS.state.playedBase = nil, nil
+  FIRE("PLAYER_LOGIN")
+  ADVANCE(3); RUN_TIMERS()
+  FIRE("TIME_PLAYED_MSG", cp.played + lostSecs + 3, levelTimeLost + 3)
+  return cp
+end
+
+step("checkpoint written on save; /reload keeps the XP-rate window", function()
+  local samplesBefore = #NS.rateSamples
+  local activeBefore = NS.state.active
+  FIRE("PLAYER_LOGOUT")
+  local cp = ChronologForeverDB.checkpoint
+  assert(cp and cp.played and cp.level == W.level, "checkpoint")
+  eq(cp.stats.kills, 100, "statistics read")
+  -- /reload: the Lua state is fresh, the saved session comes back
+  NS.state.active = 0; wipe(NS.rateSamples)
+  FIRE("PLAYER_LOGIN")
+  near(NS.state.active, activeBefore, "active time restored")
+  eq(#NS.rateSamples, samplesBefore, "rate samples restored")
+end)
+
+step("crash recovery, same level: time, kills, quests, XP, gold put back", function()
+  local lvl = W.level
+  local r0 = DeepCopy(ns.GetRow(ChronologForeverDB, lvl))
+  local before = #PRINTED
+  CrashAndRelog(function()
+    W.xp = W.xp + 300; W.money = W.money + 5000
+    W.stats.kills = W.stats.kills + 7; W.stats.quests = W.stats.quests + 2
+    ADVANCE(1800)
+    return 1800, ns.LevelTime(r0) + (r0.loading or 0) + 1800
+  end)
+  local r = ns.GetRow(ChronologForeverDB, lvl)
+  near(r.lost - r0.lost, 1800, "lost time")
+  eq(r.kills - r0.kills, 7); eq(r.recKills, 7)
+  eq(r.quests - r0.quests, 2)
+  eq(r.xp - r0.xp, 300); eq(r.gold - r0.gold, 5000)
+  near(r.untracked, r0.untracked, "not mistaken for pre-install time")
+  eq(ChronologForeverDB.recoveries[1].kills, 7)
+  assert(PRINTED[#PRINTED]:find("recovered an unsaved session"), "login note")
+  -- XP/gold aren't counted a second time by the live trackers
+  FIRE("PLAYER_XP_UPDATE"); FIRE("PLAYER_MONEY")
+  eq(r.xp - r0.xp, 300, "no double XP"); eq(r.gold - r0.gold, 5000, "no double gold")
+end)
+
+step("crash recovery across level-ups: time split by XP, levels marked estimated", function()
+  local from = W.level
+  local lostBefore = {}
+  for L = from, from + 3 do lostBefore[L] = ns.GetRow(ChronologForeverDB, L).lost end
+  CrashAndRelog(function()
+    W.level = from + 3; W.xp = 200
+    W.stats.kills = W.stats.kills + 30; W.stats.deaths = W.stats.deaths + 1
+    ADVANCE(10800)
+    return 10800, 1200
+  end)
+  local cur = from + 3
+  local sum, kills = 0, 0
+  for L = from, cur do
+    local r = ns.GetRow(ChronologForeverDB, L)
+    sum = sum + (r.lost - lostBefore[L])
+    kills = kills + r.recKills
+  end
+  near(sum, 10800, "all lost time placed")
+  near(ns.GetRow(ChronologForeverDB, cur).lost - lostBefore[cur], 1200, "current level from /played")
+  eq(ns.GetRow(ChronologForeverDB, from + 1).estimated, true)
+  eq(ns.GetRow(ChronologForeverDB, cur).estimated, nil, "current level is exact")
+  assert(kills >= 30, "kills allocated")
+  -- estimated levels stay out of pace
+  local p = ns.GetPace()
+  assert(not p.levels[from + 1], "estimated level not compared")
+end)
+
+step("nothing lost -> nothing recovered", function()
+  local n = #ChronologForeverDB.recoveries
+  CrashAndRelog(function() return 0, ns.LevelTime(ns.GetRow(ChronologForeverDB, W.level)) end)
+  eq(#ChronologForeverDB.recoveries, n)
+end)
+
+step("optional save prompt after level-up", function()
+  POPUP, RELOADED = nil, nil
+  FIRE("PLAYER_LEVEL_UP", W.level + 1); RUN_TIMERS()
+  eq(POPUP, nil, "off by default")
+  ChronologForeverDB.options.savePrompt = true
+  ADVANCE(400)
+  W.combat = true
+  FIRE("PLAYER_LEVEL_UP", W.level + 1); RUN_TIMERS()
+  eq(POPUP, nil, "not in combat")
+  W.combat = false; FIRE("PLAYER_REGEN_ENABLED")
+  eq(POPUP and POPUP.name, "CHRONOLOG_FOREVER_SAVE")
+  StaticPopupDialogs.CHRONOLOG_FOREVER_SAVE.OnAccept()
+  eq(RELOADED, true)
+  assert(PROXIES.ChronologForever_SavePrompt, "setting exists")
+end)
+
 step("reset wipes data, keeps settings, re-syncs account", function()
   ChronologForeverDB.paceRef = "Fast-Realm"
   local keepScale = ChronologForeverDB.widget.scale
