@@ -3,7 +3,7 @@ from lupa.lua51 import LuaRuntime
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-FILES = "Core Skin Common Pace Recovery Views UI Widget Export Minimap Settings".split()
+FILES = "Core Skin Common Pace Recovery Heat Views UI Widget Export Minimap Settings".split()
 WITH_EUI = len(sys.argv) > 1 and sys.argv[1] == "eui"
 
 lua = LuaRuntime(unpack_returned_tuples=True)
@@ -115,6 +115,32 @@ StaticPopupDialogs = {}
 function StaticPopup_Show(name, arg) POPUP = { name = name, arg = arg } end
 function ReloadUI() RELOADED = true end
 function InCombatLockdown() return W.combat end
+
+-- Maps: Durotar (1411, a zone) with a cave micro map (9001) inside it.
+-- W.pos = {x, y} on the zone map (nil = unavailable, e.g. in an instance).
+Enum = { UIMapType = { Cosmic = 0, World = 1, Continent = 2, Zone = 3, Dungeon = 4, Micro = 5, Orphan = 6 } }
+W.mapID, W.pos, W.subzone = 1411, { 0.5, 0.5 }, "Razor Hill"
+local MAPS = {
+  [1411] = { mapID = 1411, mapType = 3, parentMapID = 1414 },
+  [1414] = { mapID = 1414, mapType = 2, parentMapID = 947 },
+  [9001] = { mapID = 9001, mapType = 5, parentMapID = 1411 },
+}
+MAP_POS_CALLS = {}
+C_Map = {
+  GetBestMapForUnit = function() return W.mapID end,
+  GetMapInfo = function(id) return MAPS[id] end,
+  GetMapWorldSize = function(id) return 4000, 3000 end,
+  GetPlayerMapPosition = function(map, unit)
+    MAP_POS_CALLS[#MAP_POS_CALLS + 1] = map
+    if W.posSecret then return SECRET end
+    if not W.pos then return nil end
+    local x, y = W.pos[1], W.pos[2]
+    return { GetXY = function() return x, y end }
+  end,
+}
+function GetSubZoneText() return W.subzone end
+local prof = 0
+function debugprofilestop() prof = prof + 0.01; return prof end
 
 -- Blizzard Settings API mock: records proxy settings so tests can drive them.
 local AUTO = setmetatable({}, {})

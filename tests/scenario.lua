@@ -143,6 +143,82 @@ step("location: world / town / instance / pvp", function()
   near(r.world + r.town + r.instance + r.pvp, r.total, "locations sum to total")
 end)
 
+step("heat: packing round-trips exactly", function()
+  local t, c, lo, hi = ns.HeatUnpack(ns.HeatPack(1048575, 789, 12, 60))
+  eq(t, 1048575); eq(c, 789); eq(lo, 12); eq(hi, 60)
+end)
+
+step("heat: seconds per cell, combat share, level range; AFK not mapped", function()
+  local heat = ChronologForeverDB.heat
+  W.pos = { 0.505, 0.505 }
+  local before = heat[1411] and heat[1411][5050] and ns.HeatUnpack(heat[1411][5050]) or 0
+  TICKS(20, 0.25) -- 5s
+  local t, c, lo, hi = ns.HeatUnpack(heat[1411][5050])
+  assert(math.abs((t - before) - 5) <= 1, "about 5s in the cell, got " .. (t - before))
+  eq(lo, W.level); eq(hi, W.level)
+  -- combat
+  W.pos = { 0.105, 0.205 }
+  FIRE("PLAYER_REGEN_DISABLED"); TICKS(12, 0.25); FIRE("PLAYER_REGEN_ENABLED")
+  local t2, c2 = ns.HeatUnpack(heat[1411][2010])
+  assert(c2 >= 2 and c2 <= t2, "combat seconds recorded")
+  -- AFK
+  W.pos = { 0.305, 0.305 }; W.afk = true; TICKS(12, 0.25); W.afk = false
+  eq(heat[1411][3030], nil, "AFK time not mapped")
+  -- the account mirror points at the same table
+  eq(ChronologAccountDB.chars["Tester-Realm"].heat, heat)
+  local n = 0
+  ns.ForEachHeatCell(nil, function(map, cell, x, y, tt) n = n + 1; assert(map == 1411 and tt > 0) end)
+  assert(n >= 2, "cells iterate")
+  W.pos = { 0.5, 0.5 }
+end)
+
+step("heat: micro maps fold into the zone; instances / secret positions are skipped", function()
+  W.mapID = 9001; TICKS(8, 0.25)
+  eq(MAP_POS_CALLS[#MAP_POS_CALLS], 1411, "cave recorded on the zone map")
+  W.mapID = 1411
+  W.pos = nil; TICKS(8, 0.25)      -- inside an instance
+  W.posSecret = true; TICKS(8, 0.25); W.posSecret = false
+  W.pos = { 0.5, 0.5 }
+end)
+
+step("subzones recorded per zone", function()
+  W.subzone = "Razor Hill"; TICKS(8, 0.25)
+  W.subzone = ""; TICKS(4, 0.25)
+  local subs = row().subzones.Durotar
+  assert(subs["Razor Hill"] >= 2, "subzone time")
+  assert(subs[""] >= 1, "open area time")
+  W.subzone = "Razor Hill"
+end)
+
+step("transport: standing still while the map position moves -> travel", function()
+  W.speed = 0
+  local r = row()
+  local travel0 = r.travel
+  local x = 0.40
+  for i = 1, 6 do
+    x = x + 0.005 -- 20 yards/second on a 4000-yard map
+    W.pos = { x, 0.5 }
+    TICKS(4, 0.25)
+  end
+  eq(NS.state.onTransport, true, "detected")
+  assert(r.travel - travel0 >= 1.5, "boat time counted as travel")
+  eq(NS.state.bucket, "travel (boat/zeppelin/tram)")
+  -- walking on deck: on-foot travel, detection restarts
+  W.speed = 7; x = x + 0.005; W.pos = { x, 0.5 }; TICKS(4, 0.25)
+  eq(NS.state.onTransport, false)
+  W.speed = 0
+  -- standing still on solid ground (or an elevator): not transport
+  for i = 1, 4 do TICKS(4, 0.25) end
+  eq(NS.state.onTransport, false, "still")
+  -- a teleport-sized jump isn't a boat
+  W.pos = { 0.9, 0.1 }; TICKS(4, 0.25); W.pos = { 0.1, 0.9 }; TICKS(4, 0.25); W.pos = { 0.9, 0.1 }; TICKS(4, 0.25)
+  eq(NS.state.onTransport, false, "jumps ignored")
+  -- a loading screen resets it
+  W.pos = { 0.5, 0.5 }
+  FIRE("PLAYER_ENTERING_WORLD")
+  eq(NS.state.onTransport, false)
+end)
+
 step("ETA: recent XP rate -> time to next level and to 60", function()
   TICKS(600, 0.25) -- 150s of active play
   W.xp = 400; FIRE("PLAYER_XP_UPDATE")
@@ -287,6 +363,7 @@ step("export builds CSV", function()
   assert(text:find("level,total_s"), "header")
   assert(text:find("Durotar"), "zones")
   assert(text:find("untracked_s"), "new columns")
+  assert(text:find("level,zone,subzone,seconds") and text:find("Razor Hill"), "subzones exported")
 end)
 
 step("minimap button (built-in or LibDBIcon) + addon compartment", function()

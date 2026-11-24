@@ -2,7 +2,7 @@
 ## Title: Chronolog-Forever
 ## Notes: Tracks per-level time (combat, travel, AFK, dead), where you spent it, kills, XP and gold, with pace splits, level ETA, charts, a widget and export.
 ## Author: Me and my pal Claude
-## Version: 1.2
+## Version: 1.3
 ## IconTexture: Interface\Icons\INV_Misc_PocketWatch_01
 ## AddonCompartmentFunc: ChronologForever_OnAddonCompartmentClick
 ## AddonCompartmentFuncOnEnter: ChronologForever_OnAddonCompartmentEnter
@@ -17,6 +17,7 @@ Skin.lua
 Common.lua
 Pace.lua
 Recovery.lua
+Heat.lua
 Views.lua
 UI.lua
 Widget.lua

@@ -70,6 +70,33 @@ function ns.BuildZonesView(parent)
     row.time:SetPoint("LEFT", row, "LEFT", 384, 0)
     row.time:SetWidth(80)
     row.time:SetJustifyH("RIGHT")
+    row.hl = row:CreateTexture(nil, "BACKGROUND")
+    row.hl:SetAllPoints(true)
+    ns.SetColor(row.hl, 1, 1, 1, 0.06)
+    row.hl:Hide()
+    row:EnableMouse(true)
+    row:SetScript("OnEnter", function(self)
+      self.hl:Show()
+      if not self.zone then return end
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      GameTooltip:AddDoubleLine(self.zone, FormatTime(self.secs), 1, 1, 1, 1, 1, 1)
+      local subs = ns.SortedZones(self.subs, 12)
+      if #subs > 0 then
+        GameTooltip:AddLine(" ")
+        for _, s in ipairs(subs) do
+          GameTooltip:AddDoubleLine(s.name ~= "" and s.name or "|cff888888(open area)|r",
+            string.format("%s  |cff888888%.0f%%|r", FormatTime(s.secs), s.secs / self.secs * 100),
+            0.85, 0.85, 0.85, 0.8, 0.8, 0.8)
+        end
+      else
+        GameTooltip:AddLine("Subzones are recorded from v1.3 on.", 0.6, 0.6, 0.6)
+      end
+      GameTooltip:Show()
+    end)
+    row:SetScript("OnLeave", function(self)
+      self.hl:Hide()
+      GameTooltip:Hide()
+    end)
     ns.SkinFonts(row)
     rows[i] = row
     return row
@@ -90,6 +117,7 @@ function ns.BuildZonesView(parent)
       row:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -(i - 1) * ZONE_ROW_H)
       row:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, -(i - 1) * ZONE_ROW_H)
       row.name:SetText(z.name)
+      row.zone, row.secs, row.subs = z.name, z.secs, agg.totals.subzones[z.name]
       ns.SetColor(row.bar, r, g, b, 0.85)
       row.bar:SetWidth(math.max(1, (top > 0 and z.secs / top or 0) * ZONE_BAR_W))
       row.pct:SetText(total > 0 and string.format("%.0f%%", z.secs / total * 100) or "-")

@@ -12,9 +12,10 @@ total time:
 
 - **Combat**: time spent in combat.
 - **Travel**: time spent actually moving: running on foot, riding a mount, using
-  a travel form (Ghost Wolf, Travel/Aquatic/Flight Form), or on a taxi / flight
-  path. Standing still (including sitting on a mount) is **not** travel; it
-  counts as idle.
+  a travel form (Ghost Wolf, Travel/Aquatic/Flight Form), on a taxi / flight
+  path, or riding a **boat or zeppelin**. These are detected when your own speed
+  is 0 but your map position keeps moving. Standing still (including sitting on
+  a mount) is **not** travel; it counts as idle.
 - **AFK**: time spent flagged away-from-keyboard.
 - **Dead**: time spent dead or running back as a ghost.
 - **Other**: all remaining active time ("idle" is the part of it spent standing
@@ -37,7 +38,15 @@ Separate counters (these can overlap the buckets):
 - **Loading screens**: time spent loading. This is **not** part of the total.
 - **Mobs killed**, **Quests** turned in, **Dungeons** completed (see notes),
   **Deaths**, **XP gained**, **Gold gained / spent**.
-- **Zones**: seconds spent in each zone.
+- **Zones and subzones**: seconds spent in each zone, and in each subzone
+  within it (hover a zone on the Zones tab).
+- **Position heatmap data**: once a second, your position on the zone map is
+  added to a 100 x 100 grid (time, combat time and level range per cell; AFK
+  time isn't mapped). A world-map heatmap overlay that uses it is coming. Cave
+  and building maps are folded into their zone. Positions inside instances
+  aren't available to addons, so dungeon time isn't mapped. A full 1-60
+  character adds roughly 100-300 KB of saved data; `/chrono debug` shows the
+  current size.
 
 **Time from before you installed it:** at login Chronolog-Forever reads
 `/played`, which tells it how long you've already been at your current level,

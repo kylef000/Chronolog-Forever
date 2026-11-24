@@ -14,7 +14,8 @@
       next login; recKills/recQuests/recDeaths are the recovered counts
       (already included in kills/quests/deaths). See Recovery.lua.
     * kills, quests, dungeons, deaths, xp, gold, spent
-    * zones     - seconds spent per zone
+    * zones     - seconds spent per zone; subzones[zone][subzone] likewise
+  Per character (not per level): heat - a position grid per zone map, see Heat.lua.
 
   Time is bucketed by a throttled OnUpdate ticker. Each tick is charged to a
   single bucket by priority so the buckets never double-count.
@@ -126,7 +127,7 @@ local NUM_FIELDS = {
 ns.NUM_FIELDS = NUM_FIELDS
 
 local function NewRow()
-  local row = { zones = {} }
+  local row = { zones = {}, subzones = {} }
   for _, f in ipairs(NUM_FIELDS) do row[f] = 0 end
   return row
 end
@@ -137,6 +138,7 @@ local function MigrateRow(row)
     if row[f] == nil then row[f] = 0 end
   end
   if type(row.zones) ~= "table" then row.zones = {} end
+  if type(row.subzones) ~= "table" then row.subzones = {} end
 end
 
 function ns.CharKey()
@@ -155,7 +157,8 @@ local function EnsureDB()
   end
   local db = ChronologForeverDB
   if type(db.levels) ~= "table" then db.levels = {} end
-  db.version = 3
+  if type(db.heat) ~= "table" then db.heat = {} end
+  db.version = 4
   if type(db.options) ~= "table" then db.options = {} end
   if db.options.readPlayed == nil then db.options.readPlayed = true end
   return db
@@ -204,6 +207,7 @@ local function SyncAccount()
     startLevel = db.startLevel,
     level = state.currentLevel or UnitLevel("player"),
     levels = db.levels,
+    heat = db.heat,
     updated = time(),
   }
 end
@@ -389,6 +393,7 @@ ticker:SetScript("OnUpdate", function(_, elapsed)
   if not state.ready or dt > MAX_DT then return end
   local db = ChronologForeverDB
   if not db then return end
+  local t0 = debugprofilestop and debugprofilestop()
 
   -- Read every query up front and treat "secret" results (the client hides some
   -- values during combat) as unknown. Comparing or testing a secret value
@@ -410,6 +415,11 @@ ticker:SetScript("OnUpdate", function(_, elapsed)
   local zone = Clean(GetRealZoneText())
   if not zone or zone == "" then zone = Clean(GetZoneText()) end
   if not zone or zone == "" then zone = "Unknown" end
+  local subzone = Clean(GetSubZoneText()) or ""
+  -- Standing still on a boat, zeppelin or tram (set by the position sampler
+  -- in Heat.lua: the map position moves while our own speed is 0).
+  local onTransport = state.onTransport and moving == false
+  state.lastMoving, state.lastOnTaxi = moving, onTaxi
 
   local row = GetRow(db, state.currentLevel)
   row.total = row.total + dt
@@ -418,14 +428,14 @@ ticker:SetScript("OnUpdate", function(_, elapsed)
     -- Dead or running back as a ghost.
     row.dead = row.dead + dt
     state.bucket = "dead"
-  elseif onTaxi or (mounted and moving ~= false) then
+  elseif onTaxi or onTransport or (mounted and moving ~= false) then
     -- Travel takes priority over combat: on a flight path, or mounted (or in
     -- a travel form) AND actually moving, is counted as travel even if the
     -- combat flag is set. Sitting still on a mount is not travel; it falls
     -- through below. If the speed is unknown (secret), a mounted player is
     -- assumed to be moving.
     row.travel = row.travel + dt
-    state.bucket = "travel (mount/form/taxi)"
+    state.bucket = onTransport and "travel (boat/zeppelin/tram)" or "travel (mount/form/taxi)"
   elseif fighting then
     row.combat = row.combat + dt
     state.bucket = "combat"
@@ -450,6 +460,12 @@ ticker:SetScript("OnUpdate", function(_, elapsed)
   if grouped then row.grouped = row.grouped + dt end
   if crafting then row.crafting = row.crafting + dt end
   row.zones[zone] = (row.zones[zone] or 0) + dt
+  local subs = row.subzones[zone]
+  if not subs then
+    subs = {}
+    row.subzones[zone] = subs
+  end
+  subs[subzone] = (subs[subzone] or 0) + dt
 
   -- Where: dungeon/raid > battleground/arena > town (rested area) > world.
   local where = state.locKind or (resting and "town") or "world"
@@ -458,6 +474,15 @@ ticker:SetScript("OnUpdate", function(_, elapsed)
   if not afk then
     state.active = state.active + dt
     SampleRate()
+  end
+
+  -- Position heatmap (samples once a second; AFK time isn't mapped).
+  if ns.HeatTick then ns.HeatTick(dt, state.bucket, state.currentLevel) end
+
+  -- Average cost of a tick, for /chrono debug.
+  if t0 then
+    local cost = debugprofilestop() - t0
+    state.tickCost = state.tickCost and (state.tickCost * 0.98 + cost * 0.02) or cost
   end
 end)
 
@@ -830,6 +855,14 @@ local function MergeInto(dst, src)
   for zone, secs in pairs(src.zones or {}) do
     dst.zones[zone] = (dst.zones[zone] or 0) + secs
   end
+  for zone, subs in pairs(src.subzones or {}) do
+    local d = dst.subzones[zone]
+    if not d then
+      d = {}
+      dst.subzones[zone] = d
+    end
+    for sub, secs in pairs(subs) do d[sub] = (d[sub] or 0) + secs end
+  end
 end
 
 -- Returns totals, a sorted list of levels, per-level rows and comparison
@@ -959,6 +992,8 @@ local function PrintDebug()
   Dbg("last save checkpoint:", cp and string.format("level %s, played %s, %s",
     tostring(cp.level), cp.played and ns.FormatTime(cp.played) or "?",
     cp.stats and cp.stats.kills and "statistics available" or "no statistics") or "(none yet)")
+  if ns.HeatDebug then ns.HeatDebug(Dbg) end
+  Dbg("avg tick cost:", state.tickCost and string.format("%.3f ms (5 ticks/s)", state.tickCost) or "?")
   Dbg("XP rate window:", string.format("%d samples, %s active", #rateSamples, ns.FormatTime(state.active)))
 end
 

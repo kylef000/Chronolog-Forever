@@ -36,6 +36,15 @@ function ns.BuildExport(agg)
       out[#out + 1] = string.format("%d,%s,%.0f", lvl, Csv(z.name), z.secs)
     end
   end
+  out[#out + 1] = ""
+  out[#out + 1] = "level,zone,subzone,seconds"
+  for _, lvl in ipairs(agg.levels) do
+    for _, z in ipairs(ns.SortedZones(agg.rows[lvl].zones)) do
+      for _, sz in ipairs(ns.SortedZones((agg.rows[lvl].subzones or {})[z.name])) do
+        out[#out + 1] = string.format("%d,%s,%s,%.0f", lvl, Csv(z.name), Csv(sz.name), sz.secs)
+      end
+    end
+  end
   return table.concat(out, "\n"), #out
 end
 
