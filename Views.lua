@@ -16,6 +16,17 @@ local FormatTime = ns.FormatTime
 local ZONE_ROW_H = 20
 local ZONE_BAR_W = 130
 
+-- The Zones and Reputation tables are laid out for the default window; when
+-- it's wider, a third of the extra room goes to the name column and the rest
+-- to the bars (the columns after them move along).
+local BASE_VIEW_W = 540
+local function ExtraWidth(view)
+  local w = view:GetWidth()
+  local extra = (w and w > BASE_VIEW_W) and math.floor(w - BASE_VIEW_W) or 0
+  local toName = math.floor(extra / 3)
+  return toName, extra - toName
+end
+
 function ns.BuildZonesView(parent)
   local view = CreateFrame("Frame", nil, parent)
   view:SetAllPoints(parent)
@@ -107,6 +118,10 @@ function ns.BuildZonesView(parent)
     local total = agg.totals.total
     local top = list[1] and list[1].secs or 0
     local r, g, b = ns.GetAccent()
+    local eName, eBar = ExtraWidth(view)
+    local barW = ZONE_BAR_W + eBar
+    hdrPct:SetPoint("TOPLEFT", view, "TOPLEFT", 340 + eName + eBar, 0)
+    hdrTime:SetPoint("TOPLEFT", view, "TOPLEFT", 384 + eName + eBar, 0)
 
     local width = scroll:GetWidth()
     if width and width > 0 then content:SetWidth(width) end
@@ -116,10 +131,14 @@ function ns.BuildZonesView(parent)
       row:ClearAllPoints()
       row:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -(i - 1) * ZONE_ROW_H)
       row:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, -(i - 1) * ZONE_ROW_H)
+      row.name:SetWidth(200 + eName)
+      row.bar:SetPoint("LEFT", row, "LEFT", 206 + eName, 0)
+      row.pct:SetPoint("LEFT", row, "LEFT", 340 + eName + eBar, 0)
+      row.time:SetPoint("LEFT", row, "LEFT", 384 + eName + eBar, 0)
       row.name:SetText(z.name)
       row.zone, row.secs, row.subs = z.name, z.secs, agg.totals.subzones[z.name]
       ns.SetColor(row.bar, r, g, b, 0.85)
-      row.bar:SetWidth(math.max(1, (top > 0 and z.secs / top or 0) * ZONE_BAR_W))
+      row.bar:SetWidth(math.max(1, (top > 0 and z.secs / top or 0) * barW))
       row.pct:SetText(total > 0 and string.format("%.0f%%", z.secs / total * 100) or "-")
       row.time:SetText(FormatTime(z.secs))
       row:Show()
@@ -163,7 +182,7 @@ function ns.BuildReputationView(parent)
   end
   Hdr("Faction", 2)
   local hdrStanding = Hdr("Standing", 196, 110)
-  Hdr("Gained", 410, 70, "RIGHT")
+  local hdrGained = Hdr("Gained", 410, 70, "RIGHT")
 
   local scroll = CreateFrame("ScrollFrame", "ChronologRepScroll", view, "UIPanelScrollFrameTemplate")
   scroll:SetPoint("TOPLEFT", view, "TOPLEFT", 0, -18)
@@ -251,6 +270,10 @@ function ns.BuildReputationView(parent)
     -- Standing is only known for the character that's logged in.
     local mine = (agg.source == nil)
     hdrStanding:SetText(mine and "Standing" or "")
+    local eName, eBar = ExtraWidth(view)
+    local barW = REP_BAR_W + eBar
+    hdrStanding:SetPoint("TOPLEFT", view, "TOPLEFT", 196 + eName, 0)
+    hdrGained:SetPoint("TOPLEFT", view, "TOPLEFT", 410 + eName + eBar, 0)
     empty:SetShown(#list == 0)
 
     local width = scroll:GetWidth()
@@ -261,6 +284,10 @@ function ns.BuildReputationView(parent)
       row:ClearAllPoints()
       row:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -(i - 1) * REP_ROW_H)
       row:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, -(i - 1) * REP_ROW_H)
+      row.name:SetWidth(190 + eName)
+      row.standing:SetPoint("LEFT", row, "LEFT", 196 + eName, 0)
+      row.bar:SetPoint("LEFT", row, "LEFT", 306 + eName, 0)
+      row.amount:SetPoint("LEFT", row, "LEFT", 410 + eName + eBar, 0)
       row.name:SetText(f.name)
       row.faction, row.value = f.name, f.value
       local st = mine and ns.GetFactionStanding(f.name) or nil
@@ -278,7 +305,7 @@ function ns.BuildReputationView(parent)
         ns.SetColor(row.bar, r, g, b, 0.85)
         row.amount:SetText(ns.FormatRep(f.value))
       end
-      row.bar:SetWidth(math.max(1, (top > 0 and math.abs(f.value) / top or 0) * REP_BAR_W))
+      row.bar:SetWidth(math.max(1, (top > 0 and math.abs(f.value) / top or 0) * barW))
       row:Show()
     end
     for i = #list + 1, #rows do rows[i]:Hide() end

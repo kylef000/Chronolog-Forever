@@ -20,7 +20,8 @@ workflow refuses to publish a tag without one.
     includes a per-level, per-faction table.
 - **Resizable window**: drag the bottom-right corner of the main window to make
   it wider or taller (right-click the corner to reset). Charts get wider bars,
-  so a full 1-60 run stays readable, and the size is remembered.
+  so a full 1-60 run stays readable; the Levels, Zones and Reputation tables
+  stretch too. The size is remembered.
 
 ### Changed
 

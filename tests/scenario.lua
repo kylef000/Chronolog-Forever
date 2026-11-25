@@ -586,6 +586,31 @@ step("window resizes: tiles and level bars stretch, size is saved and clamped", 
   f.scripts.OnSizeChanged(f)
 end)
 
+step("Zones and Reputation tables stretch with the window", function()
+  -- 420px wider than the default: 140 to the name column, 280 to the bars
+  for _, id in ipairs({ "zones", "rep" }) do ns.views[id].GetWidth = function() return 960 end end
+  ns.views.zones.Refresh(ns.GetAggregate(nil))
+  ns.views.rep.Refresh(ns.GetAggregate(nil))
+  local zoneRow, repRow
+  for _, t in ipairs(ALL_FRAMES) do
+    if t.zone == "Durotar" and t.shown then zoneRow = t end
+    if t.faction == "Orgrimmar" and t.shown then repRow = t end
+  end
+  eq(zoneRow.name.w, 340, "zone name column")
+  eq(zoneRow.bar.pt[2], 346, "zone bar moved")
+  eq(zoneRow.pct.pt[2], 760, "share column moved")
+  eq(zoneRow.time.pt[2], 804, "time column moved")
+  eq(repRow.name.w, 330, "faction name column")
+  eq(repRow.standing.pt[2], 336, "standing moved")
+  eq(repRow.amount.pt[2], 830, "gained column moved")
+  eq(repRow.bar.w, 100 + 280, "biggest faction's bar fills the wider column")
+  -- back to the default layout
+  for _, id in ipairs({ "zones", "rep" }) do ns.views[id].GetWidth = nil end
+  ns.views.zones.Refresh(ns.GetAggregate(nil))
+  ns.views.rep.Refresh(ns.GetAggregate(nil))
+  eq(zoneRow.pct.pt[2], 340); eq(repRow.amount.pt[2], 410); eq(repRow.bar.w, 100)
+end)
+
 step("row / tile / bar / chart column tooltips run", function()
   for _, f in ipairs(ALL_FRAMES) do
 

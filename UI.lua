@@ -25,6 +25,7 @@ local frame -- main window
 local rows = {} -- pooled per-level row frames
 local tiles = {}
 local views = {} -- tab id -> view frame (with Refresh)
+ns.views = views
 local tabButtons = {}
 local currentTab = "levels"
 local lastAgg

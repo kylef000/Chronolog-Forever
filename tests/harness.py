@@ -42,6 +42,10 @@ local function NewObj(kind, name)
     if k == "GetFontString" then return function(self) return NewObj("fs") end end
     if k == "SetText" then return function(self, s) self.text = s end end
     if k == "SetWidth" then return function(self, v) self.w = v end end
+    if k == "SetPoint" then return function(self, p, rel, rp, x, y)
+      if type(rel) == "number" then x, y = rel, rp end
+      self.pt = { p, x, y }
+    end end
     if k == "SetSize" then return function(self, w, h) self.w, self.h = w, h end end
     if k == "GetText" then return function(self) return self.text end end
     if k == "GetWidth" or k == "GetHeight" or k == "GetEffectiveScale" or k == "GetScale" then return function() return 100 end end
