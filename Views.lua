@@ -483,18 +483,23 @@ local function BuildSpec(mode, agg, pace)
     end
 
   elseif mode == "rep" then
-    spec.fmt = function(v) return ns.FormatNumber(v) end
+    spec.fmt = function(v)
+      if v < 0 then return "-" .. ns.FormatNumber(-v) end
+      return ns.FormatNumber(v)
+    end
     local gains = {}
     for name, v in pairs(agg.totals.factions or {}) do if v > 0 then gains[name] = v end end
     local top = ns.SortedFactions(gains, #REP_PALETTE)
     local colorOf = {}
     for i, f in ipairs(top) do colorOf[f.name] = REP_PALETTE[i] end
-    local hasOther = false
+    local hasOther, hasLoss = false, false
     local sum, n = 0, 0
     for _, lvl in ipairs(agg.levels) do
       local row = agg.rows[lvl]
       local gained = ns.RepGained(row)
-      if gained > 0 then
+      local lost = 0
+      for _, v in pairs(row.factions) do if v < 0 then lost = lost + v end end
+      if gained > 0 or lost < 0 then
         local segs, other = {}, 0
         for i, f in ipairs(top) do
           local v = row.factions[f.name]
@@ -504,22 +509,31 @@ local function BuildSpec(mode, agg, pace)
           if v > 0 and not colorOf[name] then other = other + v end
         end
         if other > 0 then segs[#segs + 1] = { other, REP_OTHER }; hasOther = true end
+        -- Losses hang below the zero line, one red block per faction.
+        for _, f in ipairs(ns.SortedFactions(row.factions)) do
+          if f.value < 0 then segs[#segs + 1] = { f.value, ns.BEHIND_COLOR }; hasLoss = true end
+        end
         spec.points[#spec.points + 1] = { lvl = lvl, segs = segs, tip = function(tip)
           tip:AddLine("Level " .. lvl .. (lvl == cur and " (current)" or ""), 1, 1, 1)
           tip:AddDoubleLine("Reputation gained", ns.FormatRep(gained):sub(2), 0.8, 0.8, 0.8, 1, 1, 1)
+          if lost < 0 then
+            local c = ns.BEHIND_COLOR
+            tip:AddDoubleLine("Reputation lost", ns.FormatRep(-lost):sub(2), 0.8, 0.8, 0.8, c[1], c[2], c[3])
+          end
           tip:AddLine(" ")
           for _, f in ipairs(ns.SortedFactions(row.factions, 12)) do
             local c = f.value < 0 and ns.BEHIND_COLOR or colorOf[f.name] or REP_OTHER
             tip:AddDoubleLine(f.name, ns.FormatRep(f.value), c[1], c[2], c[3], 1, 1, 1)
           end
         end }
-        if lvl ~= cur then sum, n = sum + gained, n + 1 end
+        if lvl ~= cur and gained > 0 then sum, n = sum + gained, n + 1 end
       end
     end
     if n > 1 then spec.avg = sum / n end
     local labels, colors = {}, {}
     for i, f in ipairs(top) do labels[i], colors[i] = f.name, REP_PALETTE[i] end
     if hasOther then labels[#labels + 1], colors[#colors + 1] = "Other", REP_OTHER end
+    if hasLoss then labels[#labels + 1], colors[#colors + 1] = "Lost", ns.BEHIND_COLOR end
     spec.caption = LegendText(labels, colors)
     spec.empty = "No reputation gained yet - it's recorded from v1.5 on."
 
@@ -619,6 +633,10 @@ function ns.BuildChartsView(parent)
   local caption = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   caption:SetPoint("BOTTOMLEFT", view, "BOTTOMLEFT", 0, 2)
   caption:SetJustifyH("LEFT")
+  -- Long legends (Rep: faction names) wrap onto a second line.
+  caption:SetWidth(400)
+  caption:SetWordWrap(true)
+  caption:SetMaxLines(2)
 
   -- Pace reference switcher (only in pace mode)
   local refBtn = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
@@ -789,11 +807,15 @@ function ns.BuildChartsView(parent)
       yMax = step * math.ceil(m / step)
       yMin = -yMax
     else
-      local m = spec.fixedMax or math.max(maxPos, 1e-9)
+      -- Stacks grow up from 0; negative segments (rep losses) hang below it,
+      -- and the axis only extends down as far as they need.
+      local posTop = spec.fixedMax or maxPos
+      local m = math.max(posTop - maxNeg, 1e-9)
       step = spec.isTime and TimeStep(m / 4) or NiceStep(m / 4)
       if spec.minStep and step < spec.minStep then step = spec.minStep end
-      yMin = 0
-      yMax = math.max(step, step * math.ceil(m / step - 1e-9))
+      yMin = (maxNeg < 0) and -step * math.ceil(-maxNeg / step - 1e-9) or 0
+      yMax = step * math.ceil(posTop / step - 1e-9)
+      if yMin == 0 and yMax < step then yMax = step end
     end
 
     local W, H = area:GetWidth(), area:GetHeight()

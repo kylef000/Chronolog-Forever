@@ -13,7 +13,8 @@ workflow refuses to publish a tag without one.
   - A new **Reputation** tab lists every faction you've gained (or lost)
     reputation with, along with your current standing. Hover a faction to see
     which levels it came from.
-  - A new **Rep** chart shows reputation gained per level, colored by faction.
+  - A new **Rep** chart shows reputation gained per level, colored by faction,
+    with losses (e.g. the opposing centaur clan) as red bars below the line.
   - Level tooltips show that level's top factions.
   - The widget can show reputation gained this level, and `/chrono export`
     includes a per-level, per-faction table.

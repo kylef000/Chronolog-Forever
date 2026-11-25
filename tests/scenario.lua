@@ -507,17 +507,25 @@ step("main window builds and refreshes all tabs / sources", function()
   for _, b in ipairs(modes) do
     if b.mode == "rep" then b.scripts.OnClick(b) end
   end
-  local repCols = 0
+  local repCols, lossCols = 0, 0
   for _, f in ipairs(ALL_FRAMES) do
     if f.segs and f.tip and f.shown then -- chart columns
       f.scripts.OnEnter(f)
       local text = table.concat(GameTooltip.lines or {}, "\n")
       assert(text:find("Reputation gained", 1, true), "rep column tooltip: " .. text)
       assert(text:find("Orgrimmar", 1, true), "faction listed")
+      if text:find("Reputation lost", 1, true) then lossCols = lossCols + 1 end
       repCols = repCols + 1
     end
   end
   eq(repCols, 2, "a rep chart column for each level with reputation")
+  eq(lossCols, 1, "the level with a loss says so")
+  -- the axis extends below zero for the Booty Bay loss (step 500 for +1,510)
+  local below
+  for _, f in ipairs(ALL_FRAMES) do
+    if f.shown and f.text == "-500" then below = true end
+  end
+  assert(below, "negative gridline label")
   for _, b in ipairs(modes) do
     if b.mode == "pace" then b.scripts.OnClick(b) end
   end

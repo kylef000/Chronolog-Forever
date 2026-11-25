@@ -125,7 +125,8 @@ each level-up" setting.
   - **Pace**: faster/slower per level plus a running-total line.
   - **XP/hr**, **Kills/hr**, **Gold/hr**: with your average as a dashed line.
   - **Deaths**: per level.
-  - **Rep**: reputation gained per level, colored by faction.
+  - **Rep**: reputation gained per level, colored by faction; losses hang
+    below the line in red.
 
 **Busiest level** is the level with the highest share of its time in combat;
 **laziest** has the highest share AFK or idle. Only levels with at least 60
