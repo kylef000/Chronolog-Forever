@@ -673,6 +673,8 @@ ticker:SetScript("OnUpdate", function(_, elapsed)
 
   -- Position heatmap (samples once a second; AFK time isn't mapped).
   if ns.HeatTick then ns.HeatTick(dt, state.bucket, state.currentLevel) end
+  -- Crash-recovery statistics refresh (once a minute, Recovery.lua).
+  if ns.RecoveryTick then ns.RecoveryTick(dt) end
 
   -- Average cost of a tick, for /chrono debug.
   if t0 then

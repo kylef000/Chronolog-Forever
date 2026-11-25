@@ -1072,6 +1072,15 @@ local function Relog(playedDelta, levelTime)
   FIRE("TIME_PLAYED_MSG", cp.played + playedDelta + 3, levelTime)
 end
 
+step("statistics refresh once a minute from the ticker; a blank logout read falls back to it", function()
+  W.stats.kills = W.stats.kills + 5
+  TICKS(250, 0.25) -- a bit over 60s of tracked time
+  W.statsBlank = true
+  FIRE("PLAYER_LOGOUT")
+  W.statsBlank = false
+  eq(ChronologForeverDB.checkpoint.stats.kills, W.stats.kills, "last good kill statistic used")
+end)
+
 step("graceful logout where the client reports 0 XP/gold: nothing recovered", function()
   -- The save-prompt test fired level-ups without changing the mock level; resync.
   FIRE("PLAYER_LEVEL_UP", W.level)

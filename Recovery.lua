@@ -335,15 +335,17 @@ f:RegisterEvent("PLAYER_LOGIN")
 f:RegisterEvent("PLAYER_LOGOUT")
 f:RegisterEvent("PLAYER_LEVEL_UP")
 f:RegisterEvent("PLAYER_REGEN_ENABLED")
+
 -- Keep a known-good copy of the statistics (cheap: three lookups a minute).
+-- Called by the Core ticker, which only runs once tracking is ready.
 local sinceStats = 0
-f:SetScript("OnUpdate", function(_, elapsed)
-  sinceStats = sinceStats + elapsed
-  if sinceStats >= 60 and ns.state.ready then
+function ns.RecoveryTick(dt)
+  sinceStats = sinceStats + dt
+  if sinceStats >= 60 then
     sinceStats = 0
     RefreshStats()
   end
-end)
+end
 
 f:SetScript("OnEvent", function(_, event)
   if event == "PLAYER_LOGIN" then
