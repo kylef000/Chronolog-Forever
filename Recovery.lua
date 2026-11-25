@@ -75,18 +75,37 @@ end
 --------------------------------------------------------------------------------
 -- Checkpoint (written on every save)
 --------------------------------------------------------------------------------
+-- Last statistics read while playing. During logout the client can hand back
+-- blank or zero values (XP and gold come back as 0 on Forever), so nothing in
+-- the checkpoint is read from the game at that moment unless it checks out.
+local lastStats = {}
+
+local function RefreshStats()
+  for key, v in pairs(ReadStats()) do
+    if v and (not lastStats[key] or v >= lastStats[key]) then lastStats[key] = v end
+  end
+end
+
 local function WriteCheckpoint()
   local db = ChronologForeverDB
   local s = ns.state
   if not db or not s.ready then return end
+  -- Statistics only ever go up: a missing or lower value at logout is bogus.
+  local stats = ReadStats()
+  for key in pairs(STAT_IDS) do
+    if not stats[key] or (lastStats[key] and stats[key] < lastStats[key]) then
+      stats[key] = lastStats[key]
+    end
+  end
   db.checkpoint = {
     at = time(),
     played = ns.PlayedNow(),
     level = s.currentLevel,
-    xp = Clean(UnitXP("player")),
-    xpMax = Clean(UnitXPMax("player")),
-    money = Clean(GetMoney()),
-    stats = ReadStats(),
+    -- XP and gold as tracked live from PLAYER_XP_UPDATE / PLAYER_MONEY.
+    xp = s.lastXP,
+    xpMax = s.lastXPMax,
+    money = s.lastMoney,
+    stats = stats,
   }
   -- Carry the XP-rate window across a /reload.
   local samples = {}
@@ -142,13 +161,20 @@ function ns.RecoverUnsaved(totalTime, levelTime)
 
   -- Lost time: /played now, minus this session, minus /played at the last save.
   local gap = 0
-  if type(totalTime) == "number" and type(cp.played) == "number" then
+  local timeKnown = type(totalTime) == "number" and type(cp.played) == "number"
+  if timeKnown then
     gap = totalTime - elapsed - cp.played
     if gap < NOISE then gap = 0 end
   end
 
-  -- Lost counts from the server statistics.
   local now = ReadStats()
+  for key, v in pairs(now) do lastStats[key] = v end
+
+  -- /played is the authority: if no time went missing, no session was lost,
+  -- whatever the other counters say.
+  if timeKnown and gap == 0 then return end
+
+  -- Lost counts from the server statistics.
   local lostCounts = {}
   for key in pairs(STAT_IDS) do
     local a, b = cp.stats and cp.stats[key], now[key]
@@ -159,11 +185,13 @@ function ns.RecoverUnsaved(totalTime, levelTime)
   local levels = {}
   for L = fromL, cur do levels[#levels + 1] = L end
   local xpNow = Clean(UnitXP("player")) or 0
+  -- A checkpoint XP is only trusted with a real XP bar size alongside it.
+  local cpXP = (type(cp.xpMax) == "number" and cp.xpMax > 0) and cp.xp or nil
   local xpBy = {}
   if cur == fromL then
-    xpBy[cur] = max(0, xpNow - (cp.xp or xpNow))
+    xpBy[cur] = cpXP and max(0, xpNow - cpXP) or 0
   else
-    xpBy[fromL] = max(0, (cp.xpMax or ns.XPForLevel(fromL) or 0) - (cp.xp or 0))
+    xpBy[fromL] = cpXP and max(0, cp.xpMax - cpXP) or 0
     for L = fromL + 1, cur - 1 do xpBy[L] = floor(ns.XPForLevel(L) or 0) end
     xpBy[cur] = xpNow
   end
@@ -268,6 +296,38 @@ if StaticPopupDialogs then
 end
 
 --------------------------------------------------------------------------------
+-- One-time repair (v1.3.1): checkpoints written by v1.3 read XP and gold at
+-- logout, where Forever returns 0, so every normal logout "recovered" the
+-- whole XP bar and gold balance at the next login. Those entries have no lost
+-- time, which a real lost session always has; undo them.
+--------------------------------------------------------------------------------
+local function RepairZeroCheckpointRecoveries()
+  local db = ChronologForeverDB
+  if not db or db.repairedZeroCheckpoint then return end
+  db.repairedZeroCheckpoint = true
+  local undone = 0
+  for _, rec in ipairs(db.recoveries or {}) do
+    if (rec.time or 0) == 0 and not rec.reverted and rec.from and rec.from == rec.to then
+      local row = ns.GetRow(db, rec.from)
+      row.xp = max(0, row.xp - (rec.xp or 0))
+      local g = rec.gold or 0
+      if g > 0 then row.gold = max(0, row.gold - g) elseif g < 0 then row.spent = max(0, row.spent + g) end
+      for field, recField in pairs({ kills = "recKills", quests = "recQuests", deaths = "recDeaths" }) do
+        local n = rec[field] or 0
+        row[field] = max(0, row[field] - n)
+        row[recField] = max(0, row[recField] - n)
+      end
+      rec.reverted = true
+      undone = undone + 1
+    end
+  end
+  if undone > 0 then
+    print(TAG .. ": removed " .. undone .. " incorrect recover" .. (undone == 1 and "y" or "ies")
+      .. " from earlier logouts (a bug in v1.3 - sorry!).")
+  end
+end
+
+--------------------------------------------------------------------------------
 -- Events
 --------------------------------------------------------------------------------
 local f = CreateFrame("Frame")
@@ -275,8 +335,19 @@ f:RegisterEvent("PLAYER_LOGIN")
 f:RegisterEvent("PLAYER_LOGOUT")
 f:RegisterEvent("PLAYER_LEVEL_UP")
 f:RegisterEvent("PLAYER_REGEN_ENABLED")
+-- Keep a known-good copy of the statistics (cheap: three lookups a minute).
+local sinceStats = 0
+f:SetScript("OnUpdate", function(_, elapsed)
+  sinceStats = sinceStats + elapsed
+  if sinceStats >= 60 and ns.state.ready then
+    sinceStats = 0
+    RefreshStats()
+  end
+end)
+
 f:SetScript("OnEvent", function(_, event)
   if event == "PLAYER_LOGIN" then
+    RepairZeroCheckpointRecoveries()
     RestoreSession()
   elseif event == "PLAYER_LOGOUT" then
     WriteCheckpoint()

@@ -678,7 +678,7 @@ end
 --------------------------------------------------------------------------------
 local function OnXP()
   local xp, xpMax = Clean(UnitXP("player")), Clean(UnitXPMax("player"))
-  if not xp or not xpMax then return end
+  if not xp or not xpMax or xpMax <= 0 then return end -- not loaded / logging out
   local last = state.lastXP
   if last then
     local gained = xp - last
@@ -808,10 +808,17 @@ ev:SetScript("OnEvent", function(_, event, ...)
     SyncAccount()
     state.inCombat = UnitAffectingCombat("player") and true or false
     state.lastXP, state.lastXPMax = Clean(UnitXP("player")), Clean(UnitXPMax("player"))
-    if state.lastXPMax and state.currentLevel < MAX_LEVEL then
+    -- An XP bar of size 0 means the client hasn't got the real values yet
+    -- (Forever reports 0 around logout); treat it as unknown so the first real
+    -- update only sets the baseline instead of counting the whole bar as gained.
+    if not state.lastXPMax or state.lastXPMax <= 0 then
+      state.lastXP, state.lastXPMax = nil, nil
+    elseif state.currentLevel < MAX_LEVEL then
       GetRow(db, state.currentLevel).xpMax = state.lastXPMax
     end
-    state.lastMoney = Clean(GetMoney())
+    -- Same for gold: 0 is indistinguishable from "not loaded yet".
+    local money = Clean(GetMoney())
+    state.lastMoney = (money and money > 0) and money or nil
     state.ready = true
     UpdateInstanceState()
     if db.options.readPlayed then

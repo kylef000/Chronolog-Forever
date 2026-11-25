@@ -571,6 +571,75 @@ step("optional save prompt after level-up", function()
   assert(PROXIES.ChronologForever_SavePrompt, "setting exists")
 end)
 
+local function Relog(playedDelta, levelTime)
+  local cp = ChronologForeverDB.checkpoint
+  NS.state.recoveryChecked, NS.state.playedBase = nil, nil
+  FIRE("PLAYER_LOGIN"); ADVANCE(3); RUN_TIMERS()
+  FIRE("TIME_PLAYED_MSG", cp.played + playedDelta + 3, levelTime)
+end
+
+step("graceful logout where the client reports 0 XP/gold: nothing recovered", function()
+  -- The save-prompt test fired level-ups without changing the mock level; resync.
+  FIRE("PLAYER_LEVEL_UP", W.level)
+  eq(NS.state.currentLevel, W.level)
+  local r = ns.GetRow(ChronologForeverDB, W.level)
+  local xp0, gold0, n0 = r.xp, r.gold, #(ChronologForeverDB.recoveries or {})
+  W.zeroValues = true
+  FIRE("PLAYER_LOGOUT")
+  W.zeroValues = false
+  local cp = ChronologForeverDB.checkpoint
+  eq(cp.xp, W.xp, "checkpoint XP comes from live tracking, not the logout read")
+  eq(cp.money, W.money, "same for gold")
+  eq(cp.stats.kills, W.stats.kills, "statistics fine")
+  Relog(0, 1000)
+  eq(#(ChronologForeverDB.recoveries or {}), n0, "no recovery")
+  eq(r.xp, xp0); eq(r.gold, gold0)
+end)
+
+step("a v1.3 zero checkpoint: no recovery when /played shows no lost time", function()
+  W.zeroValues = false
+  FIRE("PLAYER_LOGOUT")
+  local cp = ChronologForeverDB.checkpoint
+  cp.xp, cp.xpMax, cp.money = 0, 0, 0 -- what v1.3 wrote
+  local r = ns.GetRow(ChronologForeverDB, W.level)
+  local xp0, gold0, n0 = r.xp, r.gold, #ChronologForeverDB.recoveries
+  Relog(0, 1000)
+  eq(#ChronologForeverDB.recoveries, n0); eq(r.xp, xp0); eq(r.gold, gold0)
+end)
+
+step("a real crash after a zero checkpoint: time recovered, bogus XP baseline ignored", function()
+  W.zeroValues = false
+  FIRE("PLAYER_LOGOUT")
+  local cp = ChronologForeverDB.checkpoint
+  cp.xp, cp.xpMax, cp.money = 0, 0, nil
+  local r = ns.GetRow(ChronologForeverDB, W.level)
+  local xp0, lost0 = r.xp, r.lost
+  Relog(900, ns.LevelTime(r) + r.loading + 900 + 3)
+  near(r.lost - lost0, 900, "lost time recovered")
+  eq(r.xp, xp0, "no XP invented from a zero checkpoint")
+end)
+
+step("repair: v1.3's bogus logout recoveries are undone once", function()
+  local db = ChronologForeverDB
+  local r = ns.GetRow(db, W.level)
+  r.xp = r.xp + 500; r.gold = r.gold + 1000
+  local xp1, gold1 = r.xp, r.gold
+  table.insert(db.recoveries, 1, { time = 0, from = W.level, to = W.level, xp = 500, gold = 1000,
+    kills = 0, quests = 0, deaths = 0 })
+  db.repairedZeroCheckpoint = nil
+  NS.state.recoveryChecked = true -- no /played reply in this relog
+  FIRE("PLAYER_LOGIN")
+  eq(r.xp, xp1 - 500); eq(r.gold, gold1 - 1000)
+  eq(db.recoveries[1].reverted, true)
+  local found = false
+  for _, line in ipairs(PRINTED) do if line:find("removed 1 incorrect recovery") then found = true end end
+  assert(found, "note printed")
+  FIRE("PLAYER_LOGIN") -- runs only once
+  eq(r.xp, xp1 - 500)
+  -- genuine recoveries (with lost time) are untouched
+  for i = 2, #db.recoveries do assert(not db.recoveries[i].reverted or db.recoveries[i].time == 0) end
+end)
+
 step("reset wipes data, keeps settings, re-syncs account", function()
   ChronologForeverDB.paceRef = "Fast-Realm"
   local keepScale = ChronologForeverDB.widget.scale
