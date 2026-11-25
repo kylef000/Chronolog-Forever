@@ -439,6 +439,7 @@ end
 --   XP/hr, Kills/hr, Gold/hr - per-level rates with your average
 --   Deaths - deaths per level
 --   Rep    - reputation gained per level, stacked by faction
+--   Flights - time on flight paths per level, with what they cost above
 --------------------------------------------------------------------------------
 local MODES = {
   { id = "time",   label = "Time" },
@@ -449,6 +450,7 @@ local MODES = {
   { id = "gph",    label = "Gold/hr" },
   { id = "deaths", label = "Deaths" },
   { id = "rep",    label = "Rep" },
+  { id = "flights", label = "Flights" },
 }
 
 local TIME_STEPS = { 60, 120, 300, 600, 900, 1200, 1800, 3600, 7200, 10800, 14400, 21600, 43200, 86400 }
@@ -617,6 +619,38 @@ local function BuildSpec(mode, agg, pace)
       spec.empty = "No finished levels to compare yet."
     end
 
+  elseif mode == "flights" then
+    spec.isTime, spec.fmt = true, ns.FormatShortTime
+    local color = ns.COLORS[2] -- travel
+    local sumT, sumC, sumN = 0, 0, 0
+    for _, lvl in ipairs(agg.levels) do
+      local row = agg.rows[lvl]
+      if (row.flight or 0) > 0 or (row.flights or 0) > 0 then
+        sumT, sumC, sumN = sumT + row.flight, sumC + row.flightCost, sumN + row.flights
+        spec.points[#spec.points + 1] = {
+          lvl = lvl,
+          segs = { { row.flight, color, true } },
+          top = (row.flightCost or 0) > 0 and ("|cffffd700" .. ns.ShortCoins(row.flightCost) .. "|r") or nil,
+          tip = function(tip)
+            tip:AddLine("Level " .. lvl .. (lvl == cur and " (current)" or ""), 1, 1, 1)
+            tip:AddDoubleLine("Time in the air", FormatTime(row.flight), 0.8, 0.8, 0.8, 1, 1, 1)
+            tip:AddDoubleLine("Flights taken", tostring(row.flights), 0.8, 0.8, 0.8, 1, 1, 1)
+            tip:AddDoubleLine("Spent on flights", ns.FormatCoins(row.flightCost), 0.8, 0.8, 0.8, 1, 1, 1)
+            if (row.travel or 0) > 0 then
+              tip:AddDoubleLine("Share of travel", string.format("%.0f%%", row.flight / row.travel * 100),
+                0.6, 0.6, 0.6, 0.8, 0.8, 0.8)
+            end
+          end,
+        }
+      end
+    end
+    if sumN > 0 then
+      spec.headline = string.format("%s in the air  |cff888888on %d %s, %s|r", FormatTime(sumT), sumN,
+        sumN == 1 and "flight" or "flights", ns.FormatCoins(sumC))
+    end
+    spec.caption = ns.Hex(color) .. "Time on flight paths|r   |cffffd700above:|r |cff888888what they cost|r"
+    spec.empty = "No flights yet - flight paths are recorded from v1.6 on."
+
   elseif mode == "rep" then
     spec.fmt = function(v)
       if v < 0 then return "-" .. ns.FormatNumber(-v) end
@@ -728,7 +762,7 @@ function ns.BuildChartsView(parent)
   local prev
   for _, m in ipairs(MODES) do
     local b = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
-    b:SetSize(62, 20)
+    b:SetSize(56, 20)
     b:SetText(m.label)
     if prev then b:SetPoint("LEFT", prev, "RIGHT", 4, 0) else b:SetPoint("TOPLEFT", view, "TOPLEFT", 0, 0) end
     b:SetScript("OnClick", function()

@@ -361,6 +361,8 @@ function ns.Refresh()
 
   -- Composition bars
   ns.UpdateStackedBar(frame.actBar, ns.RowValues(t), frame.actBar.width)
+  frame.flightText:SetText(ns.Gold("|cffffd200Flight paths|r ") .. FormatTime(t.flight)
+    .. ((t.flights or 0) > 0 and ("  |cff888888" .. t.flights .. (t.flights == 1 and " flight" or " flights") .. "|r") or ""))
   ns.UpdateStackedBar(frame.locBar, ns.LocValues(t), frame.locBar.width, t.total)
 
   -- Highlights
@@ -706,6 +708,35 @@ local function BuildWindow()
     end
     tip:AddDoubleLine("  of which idle", FormatTime(t.idle) .. "  (" .. pct(t.idle, t.total) .. ")", 0.6, 0.6, 0.6, 0.8, 0.8, 0.8)
   end)
+  -- Flight paths: right-aligned on the activity legend row (flying is part of
+  -- Travel). Hover for the cost in gold, silver and copper.
+  local flightText = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  flightText:SetPoint("TOPRIGHT", actBar, "BOTTOMRIGHT", 0, -4)
+  flightText:SetJustifyH("RIGHT")
+  frame.flightText = flightText
+  local flightHit = CreateFrame("Frame", nil, frame)
+  flightHit:SetAllPoints(flightText)
+  flightHit:EnableMouse(true)
+  flightHit:SetScript("OnEnter", function(self)
+    local t = (lastAgg or ns.GetAggregate(ns.viewSource)).totals
+    GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+    GameTooltip:AddLine("Flight paths", 1, 1, 1)
+    GameTooltip:AddLine(" ")
+    GameTooltip:AddDoubleLine("Time in the air", FormatTime(t.flight)
+      .. ((t.travel or 0) > 0 and ("  |cff888888" .. pct(t.flight, t.travel) .. " of travel|r") or ""),
+      0.8, 0.8, 0.8, 1, 1, 1)
+    GameTooltip:AddDoubleLine("Flights taken", tostring(t.flights), 0.8, 0.8, 0.8, 1, 1, 1)
+    GameTooltip:AddDoubleLine("Spent on flights", ns.FormatCoins(t.flightCost), 0.8, 0.8, 0.8, 1, 1, 1)
+    if t.flights > 0 then
+      GameTooltip:AddDoubleLine("Average flight", FormatTime(t.flight / t.flights) .. "  "
+        .. ns.FormatCoins(t.flightCost / t.flights), 0.8, 0.8, 0.8, 1, 1, 1)
+    end
+    GameTooltip:AddLine(" ")
+    GameTooltip:AddLine("Part of your Travel time and gold spent. Recorded from v1.6 on.", 0.6, 0.6, 0.6, true)
+    GameTooltip:Show()
+  end)
+  flightHit:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
   actLab:ClearAllPoints()
   actLab:SetPoint("TOPLEFT", frame, "TOPLEFT", 20, -48 - 2 * (TILE_H + TILE_GAP) - 8)
   frame.actBar = actBar

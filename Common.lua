@@ -172,6 +172,10 @@ function ns.AddBreakdown(tip, row, avg, pace)
       .. (row.estimated and "  |cff888888(estimated)|r" or ""), GRAY, GRAY, GRAY, 1, 1, 1)
   end
   tip:AddDoubleLine("Grouped", FormatTime(row.grouped), GRAY, GRAY, GRAY, 1, 1, 1)
+  if (row.flight or 0) > 0 or (row.flights or 0) > 0 then
+    tip:AddDoubleLine(string.format("Flight paths (%d %s)", row.flights, row.flights == 1 and "flight" or "flights"),
+      FormatTime(row.flight) .. "  " .. ns.FormatCoins(row.flightCost), GRAY, GRAY, GRAY, 1, 1, 1)
+  end
   if row.crafting > 0 then
     tip:AddDoubleLine("Professions window open", FormatTime(row.crafting), GRAY, GRAY, GRAY, 1, 1, 1)
   end

@@ -69,8 +69,15 @@ ChatFontNormal = {}
 UISpecialFrames = {}
 tinsert = table.insert
 function wipe(t) for k in pairs(t) do t[k] = nil end return t end
-function hooksecurefunc(...) end
+-- Post-hooks run after the original, like the real thing.
+function hooksecurefunc(name, fn)
+  local orig = _G[name]
+  _G[name] = function(...) local r = { orig(...) }; fn(...); return unpack(r) end
+end
 function GetQuestReward() end
+W.taxiCost = 0
+function TakeTaxiNode(i) TAXI_TAKEN = i end
+function TaxiNodeCost(i) return W.taxiCost end
 local _print = print
 PRINTED = {}
 function print(...) local t = {} for i = 1, select("#", ...) do t[#t+1] = tostring((select(i, ...))) end PRINTED[#PRINTED+1] = table.concat(t, " ") end

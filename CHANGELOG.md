@@ -4,6 +4,25 @@ Each release's notes on GitHub (and CurseForge) are taken from its section
 below. Add a `## vX.Y.Z - YYYY-MM-DD` section before tagging; the release
 workflow refuses to publish a tag without one.
 
+## Unreleased
+
+### New
+
+- **Flight path tracking**: time spent on flight paths, how many flights you
+  took and what they cost (to the copper) are now recorded per level.
+  - **Flight paths** on the main window (next to the Activity legend) shows
+    your time in the air; hover it for the gold, silver and copper spent, the
+    number of flights and the average flight.
+  - A new **Flights** chart shows time in the air per level, with the cost
+    above each column.
+  - Level tooltips show that level's flights, and the widget can show
+    "Flying" for the current level. `/chrono export` includes the new columns.
+
+### Notes
+
+- Flights are recorded from this version on. Flight time is part of Travel,
+  and the cost is part of gold spent.
+
 ## v1.5.0 - 2026-11-25
 
 ### New

@@ -14,6 +14,8 @@
       next login; recKills/recQuests/recDeaths are the recovered counts
       (already included in kills/quests/deaths). See Recovery.lua.
     * kills, quests, dungeons, deaths, xp, gold, spent
+    * flight, flights, flightCost - time on flight paths (part of travel), the
+      number of flights and what they cost in copper (part of spent)
     * zones     - seconds spent per zone; subzones[zone][subzone] likewise
     * factions  - net reputation change per faction name (see Reputation.lua)
   Per character (not per level): heat - a position grid per zone map, see Heat.lua.
@@ -124,6 +126,7 @@ local NUM_FIELDS = {
   "xp", "gold", "spent", "crafting", "loading",
   "world", "town", "instance", "pvp", "untracked",
   "lost", "recKills", "recQuests", "recDeaths",
+  "flight", "flights", "flightCost",
 }
 ns.NUM_FIELDS = NUM_FIELDS
 
@@ -419,6 +422,33 @@ function ns.FormatGold(copper)
   return "0g"
 end
 
+-- copper -> "12g 34s 56c" with the coin colors (or the game's coin icons).
+-- Leading zero units are left out: "34s 56c", "56c".
+function ns.FormatCoins(copper)
+  copper = floor((copper or 0) + 0.5)
+  if GetCoinTextureString then
+    local ok, s = pcall(GetCoinTextureString, copper)
+    if ok and type(s) == "string" and s ~= "" then return s end
+  end
+  local g, sv, c = floor(copper / 10000), floor((copper % 10000) / 100), copper % 100
+  local parts = {}
+  if g > 0 then parts[#parts + 1] = "|cffffd700" .. g .. "g|r" end
+  if g > 0 or sv > 0 then parts[#parts + 1] = "|cffc7c7cf" .. sv .. "s|r" end
+  parts[#parts + 1] = "|cffeda55f" .. c .. "c|r"
+  return table.concat(parts, " ")
+end
+
+-- Short money label for charts: "1.2g", "85s", "40c".
+function ns.ShortCoins(copper)
+  copper = copper or 0
+  if copper >= 10000 then
+    local g = copper / 10000
+    return (g >= 10 and string.format("%dg", floor(g + 0.5))) or string.format("%.1fg", g)
+  end
+  if copper >= 100 then return string.format("%ds", floor(copper / 100 + 0.5)) end
+  return string.format("%dc", floor(copper + 0.5))
+end
+
 -- `field` per hour of tracked time (0 until the level has enough data).
 function ns.PerHour(row, field, divisor)
   if (row.total or 0) < MIN_TOTAL_FOR_RATIO then return 0 end
@@ -485,6 +515,7 @@ ns.STATS = {
   { key = "gph",      label = "Gold/hr",  get = function(r) return string.format("%.1fg", ns.PerHour(r, "gold", 10000)) end },
   { key = "crafting", label = "Crafting", get = function(r) return ns.FormatTime(r.crafting) end },
   { key = "dead",     label = "Dead",     get = function(r) return ns.FormatTime(r.dead) end },
+  { key = "flight",   label = "Flying",   get = function(r) return ns.FormatTime(r.flight) end },
   { key = "rep",      label = "Rep",      get = function(r) return ns.FormatNumber(ns.RepGained and ns.RepGained(r) or 0) end },
   { key = "eta",      label = "Next lvl", get = function()
       local t = ns.GetETA and ns.GetETA()
@@ -576,6 +607,12 @@ ticker:SetScript("OnUpdate", function(_, elapsed)
   -- in Heat.lua: the map position moves while our own speed is 0).
   local onTransport = state.onTransport and moving == false
   state.lastMoving, state.lastOnTaxi = moving, onTaxi
+  -- Took off on a flight path (not counted again after a /reload mid-flight;
+  -- the login handler seeds wasOnTaxi).
+  if onTaxi ~= nil then
+    if onTaxi and not state.wasOnTaxi and ns.OnFlightStart then ns.OnFlightStart() end
+    state.wasOnTaxi = onTaxi and true or false
+  end
 
   local row = GetRow(db, state.currentLevel)
   row.total = row.total + dt
@@ -591,7 +628,9 @@ ticker:SetScript("OnUpdate", function(_, elapsed)
     -- through below. If the speed is unknown (secret), a mounted player is
     -- assumed to be moving.
     row.travel = row.travel + dt
-    state.bucket = onTransport and "travel (boat/zeppelin/tram)" or "travel (mount/form/taxi)"
+    if onTaxi then row.flight = row.flight + dt end
+    state.bucket = onTaxi and "travel (flight path)"
+      or onTransport and "travel (boat/zeppelin/tram)" or "travel (mount/form)"
   elseif fighting then
     row.combat = row.combat + dt
     state.bucket = "combat"
@@ -761,6 +800,10 @@ end
 --------------------------------------------------------------------------------
 -- XP / gold tracking
 --------------------------------------------------------------------------------
+local FLIGHT_PICK_WINDOW = 15 -- seconds from clicking a destination to takeoff
+local FLIGHT_SPEND_WINDOW = 5 -- seconds between paying and takeoff (fallback)
+local AddFlightCost -- defined with the flight-path code below
+
 local function OnXP()
   local xp, xpMax = Clean(UnitXP("player")), Clean(UnitXPMax("player"))
   if not xp or not xpMax or xpMax <= 0 then return end -- not loaded / logging out
@@ -791,7 +834,57 @@ local function OnMoney()
   local db = ChronologForeverDB
   if not db then return end
   local row = GetRow(db, state.currentLevel)
-  if m > last then row.gold = row.gold + (m - last) else row.spent = row.spent + (last - m) end
+  if m > last then
+    row.gold = row.gold + (m - last)
+  else
+    local amount = last - m
+    row.spent = row.spent + amount
+    local now = GetTime()
+    if state.flightAwaitCost and now - state.flightAwaitCost <= FLIGHT_SPEND_WINDOW then
+      state.flightAwaitCost = nil
+      AddFlightCost(amount)
+    else
+      state.lastSpend = { amount = amount, at = now }
+    end
+  end
+end
+
+--------------------------------------------------------------------------------
+-- Flight paths
+--   The price comes from the destination you click (TakeTaxiNode ->
+--   TaxiNodeCost). If that isn't available, the gold that left your bags just
+--   before (or just after) takeoff is used.
+--------------------------------------------------------------------------------
+function AddFlightCost(amount)
+  local db = ChronologForeverDB
+  if not db or not amount or amount < 0 then return end
+  local row = GetRow(db, state.currentLevel)
+  row.flightCost = row.flightCost + amount
+end
+
+function ns.OnFlightStart()
+  local db = ChronologForeverDB
+  if not db then return end
+  local row = GetRow(db, state.currentLevel)
+  row.flights = row.flights + 1
+  local now = GetTime()
+  local pick, spend = state.pendingFlight, state.lastSpend
+  state.pendingFlight, state.lastSpend = nil, nil
+  if pick and pick.cost and now - pick.at <= FLIGHT_PICK_WINDOW then
+    AddFlightCost(pick.cost)
+  elseif spend and now - spend.at <= FLIGHT_SPEND_WINDOW then
+    AddFlightCost(spend.amount)
+  else
+    state.flightAwaitCost = now -- the money may leave just after takeoff
+  end
+  if ns.Refresh then ns.Refresh() end
+end
+
+if type(TakeTaxiNode) == "function" then
+  hooksecurefunc("TakeTaxiNode", function(index)
+    local cost = TaxiNodeCost and Clean(TaxiNodeCost(index))
+    state.pendingFlight = { at = GetTime(), cost = type(cost) == "number" and cost or nil }
+  end)
 end
 
 --------------------------------------------------------------------------------
@@ -905,6 +998,8 @@ ev:SetScript("OnEvent", function(_, event, ...)
     -- Same for gold: 0 is indistinguishable from "not loaded yet".
     local money = Clean(GetMoney())
     state.lastMoney = (money and money > 0) and money or nil
+    -- Already on a flight (e.g. /reload mid-flight): not a new one.
+    state.wasOnTaxi = Clean(UnitOnTaxi("player")) and true or false
     state.ready = true
     UpdateInstanceState()
     if db.options.readPlayed then

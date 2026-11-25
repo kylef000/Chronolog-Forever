@@ -40,6 +40,9 @@ Separate counters (these can overlap the buckets):
   **Deaths**, **XP gained**, **Gold gained / spent**.
 - **Zones and subzones**: seconds spent in each zone, and in each subzone
   within it (hover a zone on the Zones tab).
+- **Flight paths**: time in the air, number of flights and their cost (the
+  price of the destination you picked). Flight time is also counted as Travel,
+  and the cost as gold spent.
 - **Reputation**: reputation gained (or lost) with each faction, read from the
   "Reputation with ... increased by ..." chat line. Works in any client
   language.
@@ -116,7 +119,9 @@ each level-up" setting.
   them in once with this addon.
 - **Stat tiles**: time played, kills, quests, deaths, XP/hour, gold/hour, next
   level ETA and pace. Hover any tile for details.
-- **Activity** and **Location** bars for the whole view.
+- **Activity** and **Location** bars for the whole view. **Flight paths**
+  (right of the Activity legend) shows your time in the air; hover it for the
+  gold, silver and copper spent.
 - **Levels tab**: a row per level with its activity bar, kills, quests, time,
   and pace against your reference. Hover a row for the full breakdown,
   a comparison against your average level, and that level's top zones.
@@ -131,6 +136,8 @@ each level-up" setting.
   - **Pace**: faster/slower per level plus a running-total line.
   - **XP/hr**, **Kills/hr**, **Gold/hr**: with your average as a dashed line.
   - **Deaths**: per level.
+  - **Flights**: time on flight paths per level, with the cost above each
+    column.
   - **Rep**: reputation gained per level, colored by faction (your primary
     factions; the rest are "Other"); losses hang below the line in red.
 
@@ -146,7 +153,7 @@ seconds of tracked time qualify for these and for per-hour rates.
 | `/chrono widget` | Toggle the small current-level widget (drag to move, right-click to hide). |
 | `/chrono widget scale <0.5-2>` | Widget size. |
 | `/chrono widget alpha <0.2-1>` | Widget opacity. |
-| `/chrono widget stat <name>` | Toggle a widget stat: `kills quests dungeons grouped deaths kph xph gph crafting dead rep eta pace`. |
+| `/chrono widget stat <name>` | Toggle a widget stat: `kills quests dungeons grouped deaths kph xph gph crafting dead flight rep eta pace`. |
 | `/chrono pace` | Change the pace reference (best splits, or one of your characters). |
 | `/chrono heatmap` | Show/hide the heatmap on the world map. |
 | `/chrono minimap` | Show/hide the minimap button (left-click: window, right-click: widget). |

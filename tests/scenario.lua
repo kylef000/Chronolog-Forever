@@ -475,6 +475,67 @@ step("reputation: current standing from the faction list", function()
   FIRE("UPDATE_FACTION")
 end)
 
+step("flight paths: time, count and cost (clicked destination, or money fallback)", function()
+  local r = row()
+  local f0, n0, c0, spent0, travel0 = r.flight, r.flights, r.flightCost, r.spent, r.travel
+  -- enough gold for the flights, without counting it as income
+  local money0 = W.money
+  W.money = W.money + 20000; ns.state.lastMoney = W.money
+  W.speed = 0
+  -- 1) pick a destination on the flight map: its price is the cost
+  W.taxiCost = 1234
+  TakeTaxiNode(3)
+  eq(TAXI_TAKEN, 3, "original TakeTaxiNode still runs")
+  W.money = W.money - 1234; FIRE("PLAYER_MONEY")
+  W.taxi = true
+  TICKS(8, 0.25) -- 2s in the air
+  eq(r.flights, n0 + 1, "one flight")
+  eq(r.flightCost, c0 + 1234, "cost from the destination")
+  near(r.flight, f0 + 2, "time in the air")
+  near(r.travel, travel0 + 2, "flying is travel")
+  eq(r.spent, spent0 + 1234, "and the gold counts as spent")
+  eq(ns.state.bucket, "travel (flight path)")
+  TICKS(4, 0.25)
+  eq(r.flights, n0 + 1, "still the same flight")
+  W.taxi = false; TICKS(2, 0.25)
+  -- 2) no destination click seen: the gold paid just before takeoff
+  ADVANCE(60)
+  W.money = W.money - 300; FIRE("PLAYER_MONEY")
+  ADVANCE(1)
+  W.taxi = true; TICKS(2, 0.25)
+  eq(r.flights, n0 + 2); eq(r.flightCost, c0 + 1534, "money paid before takeoff")
+  W.taxi = false; TICKS(2, 0.25)
+  -- 3) the money leaves just after takeoff
+  ADVANCE(60)
+  W.taxi = true; TICKS(2, 0.25)
+  eq(r.flightCost, c0 + 1534, "nothing yet")
+  W.money = W.money - 66; FIRE("PLAYER_MONEY")
+  eq(r.flightCost, c0 + 1600, "money paid just after takeoff")
+  W.taxi = false; TICKS(2, 0.25)
+  -- 4) an old purchase isn't mistaken for a flight
+  ADVANCE(60)
+  W.money = W.money - 5000; FIRE("PLAYER_MONEY")
+  ADVANCE(30)
+  W.taxi = true; TICKS(2, 0.25)
+  ADVANCE(30)
+  W.money = W.money - 70; FIRE("PLAYER_MONEY")
+  eq(r.flights, n0 + 4); eq(r.flightCost, c0 + 1600, "unrelated spending ignored")
+  W.taxi = false; TICKS(2, 0.25)
+  -- money formatting
+  eq(ns.FormatCoins(123456), "|cffffd70012g|r |cffc7c7cf34s|r |cffeda55f56c|r")
+  eq(ns.FormatCoins(56), "|cffeda55f56c|r")
+  eq(ns.FormatCoins(10002), "|cffffd7001g|r |cffc7c7cf0s|r |cffeda55f2c|r")
+  eq(ns.ShortCoins(15000), "1.5g"); eq(ns.ShortCoins(850), "9s"); eq(ns.ShortCoins(40), "40c")
+  -- exported and shown in the level tooltip
+  local text = ns.BuildExport(ns.GetAggregate(nil))
+  assert(text:find("flight_s,flights,flight_copper", 1, true), "export header")
+  GameTooltip:SetOwner(UIParent)
+  ns.AddBreakdown(GameTooltip, r, nil, nil)
+  local tip = table.concat(GameTooltip.lines, "\n")
+  assert(tip:find("Flight paths (4 flights)", 1, true), "level tooltip: " .. tip)
+  W.money = money0; ns.state.lastMoney = money0
+end)
+
 step("main window builds and refreshes all tabs / sources", function()
   SlashCmdList.CHRONOLOG("")
   assert(ChronologFrame and ChronologFrame.shown, "window shown")
@@ -494,7 +555,29 @@ step("main window builds and refreshes all tabs / sources", function()
   for _, f in ipairs(ALL_FRAMES) do
     if f.mode and f.scripts.OnClick then modes[#modes + 1] = f end
   end
-  eq(#modes, 8, "chart mode buttons")
+  eq(#modes, 9, "chart mode buttons")
+  -- the main window's flight line and its tooltip
+  local ft = ChronologFrame.flightText.text
+  assert(ft:find("Flight paths", 1, true) and ft:find("4 flights", 1, true), "flight line: " .. ft)
+  -- the Flights chart: a column for the level, cost above it, a headline
+  for _, f in ipairs(ALL_FRAMES) do
+    if f.scripts.OnClick and f.text == "Charts" then f.scripts.OnClick(f) end
+  end
+  for _, b in ipairs(modes) do
+    if b.mode == "flights" then b.scripts.OnClick(b) end
+  end
+  local cols, headline = 0, nil
+  for _, f in ipairs(ALL_FRAMES) do
+    if f.segs and f.tip and f.shown then
+      f.scripts.OnEnter(f)
+      assert(table.concat(GameTooltip.lines, "\n"):find("Time in the air", 1, true), "flights tooltip")
+      assert(f.top.text:find("16s", 1, true), "cost above the column (1,600c): " .. tostring(f.top.text))
+      cols = cols + 1
+    end
+    if f.shown and type(f.text) == "string" and f.text:find("in the air", 1, true) then headline = f.text end
+  end
+  eq(cols, 1, "one level with flights")
+  assert(headline and headline:find("on 4 flights", 1, true), "headline: " .. tostring(headline))
   for _, src in ipairs({ false, "Fast-Realm", "ALL" }) do
     ns.viewSource = src or nil
     for _, f in ipairs(ALL_FRAMES) do

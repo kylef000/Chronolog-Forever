@@ -20,14 +20,16 @@ end
 function ns.BuildExport(agg)
   local out = {}
   out[#out + 1] = "level,total_s,untracked_s,lost_s,combat_s,travel_s,afk_s,dead_s,other_s,idle_s,grouped_s,crafting_s,loading_s,"
-    .. "world_s,town_s,instance_s,pvp_s,kills,quests,dungeons,deaths,xp,gold_copper,spent_copper"
+    .. "world_s,town_s,instance_s,pvp_s,kills,quests,dungeons,deaths,xp,gold_copper,spent_copper,"
+    .. "flight_s,flights,flight_copper"
   for _, lvl in ipairs(agg.levels) do
     local r = agg.rows[lvl]
     if r.total > 0 or r.kills > 0 or r.quests > 0 then
       out[#out + 1] = string.format(
-        "%d,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%d,%d,%d,%d,%d,%d,%d",
+        "%d,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%d,%d,%d,%d,%d,%d,%d,%.0f,%d,%d",
         lvl, r.total, r.untracked, r.lost, r.combat, r.travel, r.afk, r.dead, r.other, r.idle, r.grouped, r.crafting, r.loading,
-        r.world, r.town, r.instance, r.pvp, r.kills, r.quests, r.dungeons, r.deaths, r.xp, r.gold, r.spent)
+        r.world, r.town, r.instance, r.pvp, r.kills, r.quests, r.dungeons, r.deaths, r.xp, r.gold, r.spent,
+        r.flight, r.flights, r.flightCost)
     end
   end
   out[#out + 1] = ""
