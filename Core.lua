@@ -1233,17 +1233,21 @@ end
 --------------------------------------------------------------------------------
 -- Debug
 --------------------------------------------------------------------------------
+-- A raw API value as text; secrets (which can't be tostring'd) show as <secret>.
+local function DbgStr(v)
+  if IsSecret(v) then return "|cffff5555<secret>|r" end
+  return tostring(v)
+end
+
 local function Dbg(label, v)
-  local s
-  if IsSecret(v) then s = "|cffff5555<secret>|r" else s = tostring(v) end
-  print("  |cffffff00" .. label .. "|r " .. s)
+  print("  |cffffff00" .. label .. "|r " .. DbgStr(v))
 end
 
 local function PrintDebug()
   print("|cff66ccffChronolog-Forever|r debug (build " .. tostring((select(4, GetBuildInfo()))) .. "):")
   Dbg("tick bucket:", state.bucket)
   Dbg("level:", state.currentLevel)
-  Dbg("name / shown as:", tostring(UnitName("player")) .. " / " .. tostring(UnitPVPName and UnitPVPName("player")))
+  Dbg("name / shown as:", DbgStr(UnitName("player")) .. " / " .. DbgStr(UnitPVPName and UnitPVPName("player")))
   Dbg("shapeshift form id:", GetShapeshiftFormID and GetShapeshiftFormID())
   Dbg("speed:", GetUnitSpeed("player"))
   Dbg("mounted:", IsMounted())
@@ -1254,7 +1258,7 @@ local function PrintDebug()
   Dbg("afk:", UnitIsAFK("player"))
   Dbg("grouped:", IsInGroup())
   Dbg("zone:", GetRealZoneText())
-  Dbg("xp / max:", tostring(UnitXP("player")) .. " / " .. tostring(UnitXPMax("player")))
+  Dbg("xp / max:", DbgStr(UnitXP("player")) .. " / " .. DbgStr(UnitXPMax("player")))
   Dbg("money:", GetMoney())
   Dbg("professions window open:", ProfessionsFrame and ProfessionsFrame:IsShown() or false)
   Dbg("kill method:", state.currentLevel < MAX_LEVEL and "XP chat line" or "target death (max level)")

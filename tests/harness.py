@@ -107,8 +107,8 @@ function UnitAffectingCombat(u) if u == "target" then return W.targetCombat end 
 function UnitIsAFK() return W.afk end
 function UnitIsDeadOrGhost() return W.dead end
 function GetUnitSpeed() if W.speedSecret then return SECRET end return W.speed end
-function UnitXP() if W.zeroValues then return 0 end return W.xp end
-function UnitXPMax() if W.zeroValues then return 0 end return W.xpmax end
+function UnitXP() if W.zeroValues then return 0 end if W.xpSecret then return SECRET end return W.xp end
+function UnitXPMax() if W.zeroValues then return 0 end if W.xpSecret then return SECRET end return W.xpmax end
 function GetMoney() if W.zeroValues then return 0 end return W.money end
 function UnitIsPlayer() return false end
 function UnitIsDead(u) return W.targetDead end

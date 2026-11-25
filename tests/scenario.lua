@@ -937,8 +937,10 @@ step("Blizzard settings page: every setting reads and writes", function()
 end)
 
 step("debug, help, options, reset confirm", function()
-  W.speedSecret = true
+  -- Every value the debug dump reads may be secret (e.g. in combat).
+  W.speedSecret = true; W.xpSecret = true; W.pvpName = SECRET
   SlashCmdList.CHRONOLOG("debug"); SlashCmdList.CHRONOLOG("help")
+  W.xpSecret = false; W.pvpName = nil
   SlashCmdList.CHRONOLOG("options"); SlashCmdList.CHRONOLOG("reset")
   W.speedSecret = false
 end)
