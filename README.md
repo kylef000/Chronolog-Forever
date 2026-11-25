@@ -111,8 +111,8 @@ each level-up" setting.
   wider or taller; right-click it to go back to the default size. The stat
   tiles, the Levels, Zones and Reputation tables and the charts use the extra
   room, and the size is remembered.
-- **Character selector** (top right): this character, your other characters,
-  or **All characters** combined. Other characters appear after you've logged
+- **Viewing** (top right): pick this character, one of your other characters,
+  or **All characters** combined from the menu. Other characters appear after you've logged
   them in once with this addon.
 - **Stat tiles**: time played, kills, quests, deaths, XP/hour, gold/hour, next
   level ETA and pace. Hover any tile for details.
@@ -123,14 +123,16 @@ each level-up" setting.
 - **Zones tab**: time per zone, biggest first.
 - **Reputation tab**: reputation gained per faction, biggest first, with your
   current standing. Hover a faction to see how much came from each level.
+  The color swatch shows its color on the Rep chart; click factions to choose
+  up to 6 **primary factions** that get their own color (by default, your top 6).
 - **Charts tab** (one column per level, with gridlines and axis):
   - **Time**: stacked by activity.
   - **Where**: share of each level in the world, in town, in dungeons, or in PvP.
   - **Pace**: faster/slower per level plus a running-total line.
   - **XP/hr**, **Kills/hr**, **Gold/hr**: with your average as a dashed line.
   - **Deaths**: per level.
-  - **Rep**: reputation gained per level, colored by faction; losses hang
-    below the line in red.
+  - **Rep**: reputation gained per level, colored by faction (your primary
+    factions; the rest are "Other"); losses hang below the line in red.
 
 **Busiest level** is the level with the highest share of its time in combat;
 **laziest** has the highest share AFK or idle. Only levels with at least 60

@@ -15,6 +15,8 @@ workflow refuses to publish a tag without one.
     which levels it came from.
   - A new **Rep** chart shows reputation gained per level, colored by faction,
     with losses (e.g. the opposing centaur clan) as red bars below the line.
+  - Choose up to 6 **primary factions** to color on the chart by clicking them
+    on the Reputation tab. Until you do, your top 6 are used.
   - Level tooltips show that level's top factions.
   - The widget can show reputation gained this level, and `/chrono export`
     includes a per-level, per-faction table.
@@ -25,6 +27,9 @@ workflow refuses to publish a tag without one.
 
 ### Changed
 
+- **Cleaner window header**: the title shows the addon version, and the
+  character button is now a "Viewing" selector that opens a menu of your
+  characters (name in class color, with level).
 - Charts label every level, or every other level, when there's room (instead
   of every 5th once you're past 20 levels).
 

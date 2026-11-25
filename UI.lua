@@ -163,6 +163,7 @@ local function RefreshTiles(agg, pace)
   local function rate(v) return hours > 0 and v / hours or 0 end
   local r, g, b = ns.GetAccent()
   for _, tile in pairs(tiles) do ns.SetColor(tile.edge, r, g, b, 0.9) end
+  if frame.charBtn then ns.SetColor(frame.charBtn.edge, r, g, b, 0.9) end
 
   local played = t.total + t.untracked + t.lost
   SetTile("played", FormatTime(played),
@@ -255,11 +256,32 @@ end
 --------------------------------------------------------------------------------
 -- Refresh
 --------------------------------------------------------------------------------
-local function SourceLabel(source)
-  for _, s in ipairs(ns.GetSources()) do
-    if s.id == source then return s.label end
+-- "|cffRRGGBB" for a class token (white if unknown).
+local function ClassHex(class)
+  local c = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
+  if not c then return "|cffffffff" end
+  local function B(v) return math.floor(v * 255 + 0.5) end
+  return string.format("|cff%02x%02x%02x", B(c.r), B(c.g), B(c.b))
+end
+
+-- Display text for a view source: the class-colored name and level, or
+-- "All characters (n)".
+local function SourceText(source)
+  local a = ChronologAccountDB
+  if source == "ALL" then
+    local n = 0
+    for _ in pairs(a and a.chars or {}) do n = n + 1 end
+    return "All characters |cff888888(" .. n .. ")|r"
   end
-  return "This character"
+  local name, class, level
+  if source and a and a.chars and a.chars[source] then
+    local c = a.chars[source]
+    name, class, level = c.name or source, c.class, c.level
+  else
+    local _, cls = UnitClass("player")
+    name, class, level = UnitName("player") or "?", cls, ns.state.currentLevel
+  end
+  return ClassHex(class) .. name .. "|r" .. (level and ("  |cff888888Lv " .. level .. "|r") or "")
 end
 
 local function RefreshLevels(agg, pace)
@@ -328,7 +350,7 @@ function ns.Refresh()
   local t = agg.totals
   local pace = ns.GetPace(agg.source)
 
-  frame.charBtn:SetText(SourceLabel(ns.viewSource) .. "  >")
+  frame.charBtn.value:SetText(SourceText(ns.viewSource))
 
   RefreshTiles(agg, pace)
 
@@ -538,38 +560,104 @@ local function BuildWindow()
   frame:Hide()
   tinsert(UISpecialFrames, "ChronologFrame")
 
-  local icon = frame:CreateTexture(nil, "ARTWORK")
-  icon:SetSize(20, 20)
-  icon:SetPoint("TOPLEFT", frame, "TOPLEFT", 20, -14)
+  -- Header: icon, title and version on the left; the "Viewing" selector and
+  -- the close button on the right. Both rows are 32px tall and sit one tile
+  -- gap above the stat tiles.
+  local header = CreateFrame("Frame", nil, frame)
+  header:SetPoint("TOPLEFT", frame, "TOPLEFT", 20, -10)
+  header:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -20, -10)
+  header:SetHeight(32)
+  header:SetFrameLevel((frame:GetFrameLevel() or 1) + 5) -- above the skin's backdrop
+
+  local iconBg = header:CreateTexture(nil, "ARTWORK")
+  iconBg:SetSize(30, 30)
+  iconBg:SetPoint("LEFT", header, "LEFT", 0, 0)
+  ns.SetColor(iconBg, 0, 0, 0, 0.6)
+  local icon = header:CreateTexture(nil, "OVERLAY")
+  icon:SetPoint("TOPLEFT", iconBg, "TOPLEFT", 1, -1)
+  icon:SetPoint("BOTTOMRIGHT", iconBg, "BOTTOMRIGHT", -1, 1)
   icon:SetTexture("Interface\\Icons\\INV_Misc_PocketWatch_01")
   icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
-  local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-  title:SetPoint("LEFT", icon, "RIGHT", 8, 0)
+  local title = header:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+  title:SetPoint("LEFT", iconBg, "RIGHT", 10, 1)
   title:SetText("Chronolog")
   ns.TrackAccent(title)
   frame.title = title
 
-  local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
-  close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -6, -6)
+  local GetMeta = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
+  local version = GetMeta and GetMeta(addonName, "Version")
+  local ver = header:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  ver:SetPoint("BOTTOMLEFT", title, "BOTTOMRIGHT", 6, 1)
+  ver:SetText(type(version) == "string" and ("v" .. version) or "")
 
-  -- Character selector: cycles this character -> others -> all characters.
-  local charBtn = MakeButton(frame, "Character", 170, 20)
-  charBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -40, -14)
-  charBtn:SetScript("OnClick", function()
-    local sources = ns.GetSources()
-    local idx = 1
-    for i, s in ipairs(sources) do if s.id == ns.viewSource then idx = i end end
-    ns.viewSource = sources[idx % #sources + 1].id
+  local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
+  close:SetPoint("RIGHT", header, "RIGHT", 4, 0)
+  close:SetFrameLevel((header:GetFrameLevel() or 1) + 1)
+
+  -- "Viewing" selector, styled like the stat tiles. Opens a menu of your
+  -- characters (or, on clients without the menu API, steps through them).
+  local charBtn = CreateFrame("Button", nil, header)
+  charBtn:SetSize(190, 32)
+  charBtn:SetPoint("RIGHT", close, "LEFT", -6, 0)
+  charBtn.bg = charBtn:CreateTexture(nil, "BACKGROUND")
+  charBtn.bg:SetAllPoints(true)
+  ns.SetColor(charBtn.bg, 0, 0, 0, 0.28)
+  charBtn.edge = charBtn:CreateTexture(nil, "BORDER")
+  charBtn.edge:SetPoint("TOPLEFT", charBtn, "TOPLEFT", 0, 0)
+  charBtn.edge:SetPoint("BOTTOMLEFT", charBtn, "BOTTOMLEFT", 0, 0)
+  charBtn.edge:SetWidth(2)
+  charBtn.label = charBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  charBtn.label:SetPoint("TOPLEFT", charBtn, "TOPLEFT", 8, -4)
+  charBtn.label:SetText("Viewing")
+  ns.TrackAccent(charBtn.label)
+  charBtn.value = charBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  charBtn.value:SetPoint("BOTTOMLEFT", charBtn, "BOTTOMLEFT", 8, 4)
+  charBtn.value:SetPoint("RIGHT", charBtn, "RIGHT", -22, 0)
+  charBtn.value:SetJustifyH("LEFT")
+  charBtn.value:SetWordWrap(false)
+  charBtn.arrow = charBtn:CreateTexture(nil, "OVERLAY")
+  charBtn.arrow:SetSize(16, 16)
+  charBtn.arrow:SetPoint("RIGHT", charBtn, "RIGHT", -4, 0)
+  charBtn.arrow:SetTexture("Interface\\Buttons\\Arrow-Down-Up")
+  charBtn.arrow:SetTexCoord(0, 1, 0, 0.5)
+
+  local function SelectSource(id)
+    ns.viewSource = id
     ns.Refresh()
+  end
+  charBtn:SetScript("OnClick", function(self)
+    local sources = ns.GetSources()
+    if MenuUtil and MenuUtil.CreateContextMenu then
+      MenuUtil.CreateContextMenu(self, function(_, root)
+        root:CreateTitle("Show data for")
+        for i, src in ipairs(sources) do
+          if src.id == "ALL" then root:CreateDivider() end
+          local text = SourceText(src.id) .. (src.id == nil and "  |cff888888(you)|r" or "")
+          root:CreateRadio(text,
+            function(idx) return sources[idx].id == ns.viewSource end,
+            function(idx) SelectSource(sources[idx].id) end, i)
+        end
+      end)
+    else
+      local idx = 1
+      for i, src in ipairs(sources) do if src.id == ns.viewSource then idx = i end end
+      SelectSource(sources[idx % #sources + 1].id)
+    end
   end)
   charBtn:SetScript("OnEnter", function(self)
+    ns.SetColor(self.bg, 1, 1, 1, 0.07)
     GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-    GameTooltip:AddLine("Click to switch between your characters", 1, 1, 1)
-    GameTooltip:AddLine("(characters appear here after you log them in once)", 0.6, 0.6, 0.6)
+    GameTooltip:AddLine("Choose whose data to show", 1, 1, 1)
+    GameTooltip:AddLine("This character, another of yours, or all of them combined. Characters appear here after you've logged them in once.", 0.6, 0.6, 0.6, true)
     GameTooltip:Show()
   end)
-  charBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+  charBtn:SetScript("OnLeave", function(self)
+    ns.SetColor(self.bg, 0, 0, 0, 0.28)
+    GameTooltip:Hide()
+  end)
+  ns.SkinFonts(header)
+  ns.SkinFonts(charBtn)
   frame.charBtn = charBtn
 
   -- Stat tiles: 4 x 2

@@ -289,7 +289,7 @@ end
 function ns.ResetData()
   local old = ChronologForeverDB
   local keep = {}
-  for _, k in ipairs({ "widget", "window", "minimap", "options", "paceRef", "chartMode" }) do
+  for _, k in ipairs({ "widget", "window", "minimap", "options", "paceRef", "chartMode", "repPrimary", "heatmap" }) do
     keep[k] = old and old[k]
   end
   ChronologForeverDB = nil

@@ -530,11 +530,43 @@ step("main window builds and refreshes all tabs / sources", function()
     if b.mode == "pace" then b.scripts.OnClick(b) end
   end
   eq(ChronologForeverDB.chartMode, "pace")
-  -- character selector cycles through every source and back
+  -- character selector without the menu API: cycles through every source and back
   local cb = ChronologFrame.charBtn
   for i = 1, #ns.GetSources() do cb.scripts.OnClick(cb) end
   eq(ns.viewSource, nil, "back to this character")
   ns.viewSource = nil
+  -- header shows the class-colored name and level
+  RAID_CLASS_COLORS = { SHAMAN = { r = 0, g = 0.44, b = 0.87 } }
+  UPDATE(1.1)
+  assert(cb.value.text:find("|cff0070deTester", 1, true) and cb.value.text:find("Lv " .. ns.state.currentLevel, 1, true),
+    "selector value: " .. tostring(cb.value.text))
+  -- with the menu API: a radio per source, "All characters" after a divider,
+  -- and picking one switches the view
+  local items, dividers
+  MenuUtil = { CreateContextMenu = function(owner, gen)
+    items, dividers = {}, 0
+    local root = {
+      CreateTitle = function() end,
+      CreateDivider = function() dividers = dividers + 1 end,
+      CreateRadio = function(_, text, isSel, setSel, data)
+        items[#items + 1] = { text = text, isSel = isSel, setSel = setSel, data = data }
+      end,
+    }
+    gen(owner, root)
+  end }
+  cb.scripts.OnClick(cb)
+  local sources = ns.GetSources()
+  eq(#items, #sources, "one radio per source")
+  eq(dividers, 1, "divider before All characters")
+  assert(items[1].isSel(items[1].data), "this character selected")
+  assert(items[1].text:find("(you)", 1, true), "you marked")
+  assert(items[#items].text:find("All characters", 1, true), "all last")
+  items[#items].setSel(items[#items].data)
+  eq(ns.viewSource, "ALL", "picked all characters")
+  assert(cb.value.text:find("All characters", 1, true), "selector updated")
+  items[1].setSel(items[1].data)
+  eq(ns.viewSource, nil)
+  MenuUtil = nil
   -- the Reputation tab lists this character's factions with standing
   for _, f in ipairs(ALL_FRAMES) do
     if f.scripts.OnClick and f.text == "Reputation" then f.scripts.OnClick(f) end
@@ -600,7 +632,7 @@ step("Zones and Reputation tables stretch with the window", function()
   eq(zoneRow.bar.pt[2], 346, "zone bar moved")
   eq(zoneRow.pct.pt[2], 760, "share column moved")
   eq(zoneRow.time.pt[2], 804, "time column moved")
-  eq(repRow.name.w, 330, "faction name column")
+  eq(repRow.name.w, 314, "faction name column (174 + 140)")
   eq(repRow.standing.pt[2], 336, "standing moved")
   eq(repRow.amount.pt[2], 830, "gained column moved")
   eq(repRow.bar.w, 100 + 280, "biggest faction's bar fills the wider column")
@@ -609,6 +641,68 @@ step("Zones and Reputation tables stretch with the window", function()
   ns.views.zones.Refresh(ns.GetAggregate(nil))
   ns.views.rep.Refresh(ns.GetAggregate(nil))
   eq(zoneRow.pct.pt[2], 340); eq(repRow.amount.pt[2], 410); eq(repRow.bar.w, 100)
+end)
+
+step("Rep chart colors: top 6 by default, or the factions you choose", function()
+  local function Click(text)
+    for _, f in ipairs(ALL_FRAMES) do
+      if f.scripts.OnClick and f.text == text then f.scripts.OnClick(f) end
+    end
+  end
+  local function Caption()
+    for _, f in ipairs(ALL_FRAMES) do
+      if f.shown and type(f.text) == "string" and f.text:find("Lost|r", 1, true) then return f.text end
+    end
+  end
+  Click("Charts")
+  for _, f in ipairs(ALL_FRAMES) do
+    if f.mode == "rep" then f.scripts.OnClick(f) end
+  end
+  -- default: biggest gainer first, no "Other" (only two factions gained)
+  local cap = Caption()
+  assert(cap:find("Orgrimmar", 1, true) < cap:find("Darkspear Trolls", 1, true), "top factions in order: " .. cap)
+  assert(not cap:find("Other", 1, true), "no Other yet")
+  -- choose Darkspear Trolls by clicking its row on the Reputation tab
+  Click("Reputation")
+  local row
+  for _, f in ipairs(ALL_FRAMES) do
+    if f.faction == "Darkspear Trolls" and f.shown then row = f end
+  end
+  assert(row.colored, "top-6 faction has a color")
+  row.scripts.OnMouseUp(row, "LeftButton")
+  eq(ns.IsRepPrimaryChosen("Darkspear Trolls"), 1, "chosen")
+  local hint = ns.views.rep.hint.text
+  assert(hint:find("1 chosen", 1, true), "hint: " .. hint)
+  assert(ns.views.rep.resetBtn.shown, "reset shown")
+  local orgRow
+  for _, f in ipairs(ALL_FRAMES) do
+    if f.faction == "Orgrimmar" and f.shown then orgRow = f end
+  end
+  assert(not orgRow.colored, "Orgrimmar is Other now")
+  -- the chart follows: Darkspear has the first color, Orgrimmar is in Other
+  Click("Charts")
+  cap = Caption()
+  assert(cap:find("Darkspear Trolls", 1, true) and cap:find("Other", 1, true), "chosen + Other: " .. cap)
+  assert(not cap:find("Orgrimmar", 1, true), "Orgrimmar not in the legend")
+  local colorOf = ns.RepColors(ns.GetAggregate(nil).totals.factions)
+  eq(colorOf["Darkspear Trolls"][1], 0.30, "first palette color")
+  -- up to six; a seventh is refused
+  for i = 1, 5 do eq(ns.ToggleRepPrimary("Faction " .. i), true) end
+  eq(ns.ToggleRepPrimary("Faction 6"), false, "seventh refused")
+  -- clicking a chosen faction again removes it
+  row.scripts.OnMouseUp(row, "LeftButton")
+  eq(ns.IsRepPrimaryChosen("Darkspear Trolls"), nil, "removed")
+  -- "Use top 6" goes back to the default
+  Click("Reputation")
+  ns.views.rep.resetBtn.scripts.OnClick(ns.views.rep.resetBtn)
+  eq(#ChronologForeverDB.repPrimary, 0, "reset")
+  assert(ns.views.rep.hint.text:find("top 6", 1, true), "hint back to default")
+  assert(not ns.views.rep.resetBtn.shown, "reset hidden")
+  Click("Charts")
+  for _, f in ipairs(ALL_FRAMES) do
+    if f.mode == "pace" then f.scripts.OnClick(f) end
+  end
+  Click("Levels")
 end)
 
 step("row / tile / bar / chart column tooltips run", function()
@@ -886,10 +980,12 @@ end)
 
 step("reset wipes data, keeps settings, re-syncs account", function()
   ChronologForeverDB.paceRef = "Fast-Realm"
+  ChronologForeverDB.repPrimary = { "Orgrimmar" }
   local keepScale = ChronologForeverDB.widget.scale
   SlashCmdList.CHRONOLOG("reset yes")
   eq(ChronologForeverDB.widget.scale, keepScale)
   eq(ChronologForeverDB.paceRef, "Fast-Realm", "pace ref kept")
+  eq(ChronologForeverDB.repPrimary[1], "Orgrimmar", "primary factions kept")
   eq(ChronologAccountDB.chars["Tester-Realm"].levels, ChronologForeverDB.levels, "resynced")
   eq(row().total, 0)
 end)

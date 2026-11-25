@@ -156,6 +156,67 @@ end
 local REP_ROW_H = 20
 local REP_BAR_W = 100
 
+-- Rep chart colors. Up to six "primary" factions get a color of their own:
+-- the ones you pick on the Reputation tab (click a faction), or, until you
+-- pick any, the six you've gained the most with. The rest are "Other".
+local REP_PALETTE = {
+  { 0.30, 0.65, 1.00 }, { 1.00, 0.70, 0.20 }, { 0.40, 0.85, 0.45 },
+  { 0.85, 0.45, 0.95 }, { 1.00, 0.45, 0.45 }, { 0.35, 0.85, 0.85 },
+}
+local REP_OTHER = { 0.55, 0.55, 0.60 }
+local MAX_PRIMARY = #REP_PALETTE
+ns.MAX_REP_PRIMARY = MAX_PRIMARY
+
+local function ChosenPrimaries()
+  local db = ns.EnsureDB()
+  if type(db.repPrimary) ~= "table" then db.repPrimary = {} end
+  return db.repPrimary
+end
+
+-- Position in the chosen list, or nil.
+function ns.IsRepPrimaryChosen(name)
+  for i, n in ipairs(ChosenPrimaries()) do
+    if n == name then return i end
+  end
+  return nil
+end
+
+-- Add or remove a chosen primary. false = already six chosen.
+function ns.ToggleRepPrimary(name)
+  local list = ChosenPrimaries()
+  local i = ns.IsRepPrimaryChosen(name)
+  if i then
+    table.remove(list, i)
+    return true
+  end
+  if #list >= MAX_PRIMARY then return false end
+  list[#list + 1] = name
+  return true
+end
+
+function ns.ResetRepPrimary() wipe(ChosenPrimaries()) end
+
+-- name -> color, the primaries in color order, and whether they were chosen.
+local function RepColors(factions)
+  local colorOf, order = {}, {}
+  local chosen = ChosenPrimaries()
+  if #chosen > 0 then
+    for i, name in ipairs(chosen) do
+      colorOf[name], order[i] = REP_PALETTE[i], name
+    end
+    return colorOf, order, true
+  end
+  local gains = {}
+  for name, v in pairs(factions or {}) do
+    if v > 0 then gains[name] = v end
+  end
+  for i, f in ipairs(ns.SortedFactions(gains, MAX_PRIMARY)) do
+    colorOf[f.name], order[i] = REP_PALETTE[i], f.name
+  end
+  return colorOf, order, false
+end
+ns.RepColors = RepColors
+
 -- Per-level changes for one faction: { {lvl, value} } by level.
 local function FactionLevels(agg, name)
   local list = {}
@@ -180,12 +241,27 @@ function ns.BuildReputationView(parent)
     ns.TrackAccent(fs)
     return fs
   end
-  Hdr("Faction", 2)
+  Hdr("Faction", 18)
   local hdrStanding = Hdr("Standing", 196, 110)
   local hdrGained = Hdr("Gained", 410, 70, "RIGHT")
 
+  -- Which factions get their own color on the Rep chart, and how to change it.
+  local hint = view:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  hint:SetPoint("TOPLEFT", view, "TOPLEFT", 2, -17)
+  hint:SetJustifyH("LEFT")
+  local resetBtn = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+  resetBtn:SetSize(84, 16)
+  resetBtn:SetPoint("LEFT", hint, "RIGHT", 8, 0)
+  resetBtn:SetText("Use top 6")
+  resetBtn:SetScript("OnClick", function()
+    ns.ResetRepPrimary()
+    if ns.Refresh then ns.Refresh() end
+  end)
+  ns.WhenSkinned(function(S) S.Button(resetBtn) end)
+  view.hint, view.resetBtn = hint, resetBtn
+
   local scroll = CreateFrame("ScrollFrame", "ChronologRepScroll", view, "UIPanelScrollFrameTemplate")
-  scroll:SetPoint("TOPLEFT", view, "TOPLEFT", 0, -18)
+  scroll:SetPoint("TOPLEFT", view, "TOPLEFT", 0, -36)
   scroll:SetPoint("BOTTOMRIGHT", view, "BOTTOMRIGHT", -14, 0)
   local content = CreateFrame("Frame", nil, scroll)
   content:SetSize(1, 1)
@@ -207,9 +283,12 @@ function ns.BuildReputationView(parent)
     if row then return row end
     row = CreateFrame("Frame", nil, content)
     row:SetHeight(REP_ROW_H)
+    row.swatch = row:CreateTexture(nil, "ARTWORK")
+    row.swatch:SetSize(8, 8)
+    row.swatch:SetPoint("LEFT", row, "LEFT", 5, 0)
     row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    row.name:SetPoint("LEFT", row, "LEFT", 2, 0)
-    row.name:SetWidth(190)
+    row.name:SetPoint("LEFT", row, "LEFT", 18, 0)
+    row.name:SetWidth(174)
     row.name:SetJustifyH("LEFT")
     row.standing = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     row.standing:SetPoint("LEFT", row, "LEFT", 196, 0)
@@ -251,7 +330,27 @@ function ns.BuildReputationView(parent)
           GameTooltip:AddDoubleLine("Level " .. p.lvl, ns.FormatRep(p.value), 0.8, 0.8, 0.8, c[1], c[2], c[3])
         end
       end
+      GameTooltip:AddLine(" ")
+      if ns.IsRepPrimaryChosen(self.faction) then
+        GameTooltip:AddLine("A primary faction on the Rep chart. Click to remove it.", 0.6, 0.6, 0.6, true)
+      elseif self.colored then
+        GameTooltip:AddLine("Has its own color on the Rep chart (one of your top 6). Click to choose your own primary factions instead.", 0.6, 0.6, 0.6, true)
+      else
+        GameTooltip:AddLine("Shown as \"Other\" on the Rep chart. Click to make it a primary faction with its own color.", 0.6, 0.6, 0.6, true)
+      end
       GameTooltip:Show()
+    end)
+    row:SetScript("OnMouseUp", function(self, button)
+      if button ~= "LeftButton" or not self.faction then return end
+      if not ns.ToggleRepPrimary(self.faction) then
+        if UIErrorsFrame then
+          UIErrorsFrame:AddMessage("Up to " .. MAX_PRIMARY .. " primary factions - click one to remove it first.", 1, 0.3, 0.3)
+        end
+        return
+      end
+      if ns.Refresh then ns.Refresh() end
+      local onEnter = self:GetScript("OnEnter")
+      if onEnter and self:IsMouseOver() then onEnter(self) end
     end)
     row:SetScript("OnLeave", function(self)
       self.hl:Hide()
@@ -276,6 +375,16 @@ function ns.BuildReputationView(parent)
     hdrGained:SetPoint("TOPLEFT", view, "TOPLEFT", 410 + eName + eBar, 0)
     empty:SetShown(#list == 0)
 
+    local colorOf, order, chosen = RepColors(agg.totals.factions)
+    if chosen then
+      hint:SetText(string.format("Chart colors: %d chosen (max %d). Click a faction to add or remove it.",
+        #order, MAX_PRIMARY))
+    else
+      hint:SetText("Chart colors: your top " .. MAX_PRIMARY .. " factions. Click a faction to pick your own.")
+    end
+    hint:SetShown(#list > 0)
+    resetBtn:SetShown(chosen and #list > 0)
+
     local width = scroll:GetWidth()
     if width and width > 0 then content:SetWidth(width) end
 
@@ -284,12 +393,19 @@ function ns.BuildReputationView(parent)
       row:ClearAllPoints()
       row:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -(i - 1) * REP_ROW_H)
       row:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, -(i - 1) * REP_ROW_H)
-      row.name:SetWidth(190 + eName)
+      row.name:SetWidth(174 + eName)
       row.standing:SetPoint("LEFT", row, "LEFT", 196 + eName, 0)
       row.bar:SetPoint("LEFT", row, "LEFT", 306 + eName, 0)
       row.amount:SetPoint("LEFT", row, "LEFT", 410 + eName + eBar, 0)
       row.name:SetText(f.name)
       row.faction, row.value = f.name, f.value
+      local sc = colorOf[f.name]
+      row.colored = sc ~= nil
+      if sc then
+        ns.SetColor(row.swatch, sc[1], sc[2], sc[3], 1)
+      else
+        ns.SetColor(row.swatch, REP_OTHER[1], REP_OTHER[2], REP_OTHER[3], 0.35)
+      end
       local st = mine and ns.GetFactionStanding(f.name) or nil
       row.info = st
       if st then
@@ -334,14 +450,6 @@ local MODES = {
   { id = "deaths", label = "Deaths" },
   { id = "rep",    label = "Rep" },
 }
-
--- Faction colors for the Rep chart (the biggest gainers overall; the rest are
--- grouped as "Other").
-local REP_PALETTE = {
-  { 0.30, 0.65, 1.00 }, { 1.00, 0.70, 0.20 }, { 0.40, 0.85, 0.45 },
-  { 0.85, 0.45, 0.95 }, { 1.00, 0.45, 0.45 }, { 0.35, 0.85, 0.85 },
-}
-local REP_OTHER = { 0.55, 0.55, 0.60 }
 
 local TIME_STEPS = { 60, 120, 300, 600, 900, 1200, 1800, 3600, 7200, 10800, 14400, 21600, 43200, 86400 }
 
@@ -514,11 +622,7 @@ local function BuildSpec(mode, agg, pace)
       if v < 0 then return "-" .. ns.FormatNumber(-v) end
       return ns.FormatNumber(v)
     end
-    local gains = {}
-    for name, v in pairs(agg.totals.factions or {}) do if v > 0 then gains[name] = v end end
-    local top = ns.SortedFactions(gains, #REP_PALETTE)
-    local colorOf = {}
-    for i, f in ipairs(top) do colorOf[f.name] = REP_PALETTE[i] end
+    local colorOf, order = RepColors(agg.totals.factions)
     local hasOther, hasLoss = false, false
     local sum, n = 0, 0
     for _, lvl in ipairs(agg.levels) do
@@ -528,9 +632,9 @@ local function BuildSpec(mode, agg, pace)
       for _, v in pairs(row.factions) do if v < 0 then lost = lost + v end end
       if gained > 0 or lost < 0 then
         local segs, other = {}, 0
-        for i, f in ipairs(top) do
-          local v = row.factions[f.name]
-          if v and v > 0 then segs[#segs + 1] = { v, REP_PALETTE[i] } end
+        for _, name in ipairs(order) do
+          local v = row.factions[name]
+          if v and v > 0 then segs[#segs + 1] = { v, colorOf[name] } end
         end
         for name, v in pairs(row.factions) do
           if v > 0 and not colorOf[name] then other = other + v end
@@ -558,7 +662,12 @@ local function BuildSpec(mode, agg, pace)
     end
     if n > 1 then spec.avg = sum / n end
     local labels, colors = {}, {}
-    for i, f in ipairs(top) do labels[i], colors[i] = f.name, REP_PALETTE[i] end
+    for _, name in ipairs(order) do
+      -- Chosen factions you haven't gained with in this view aren't drawn.
+      if (agg.totals.factions[name] or 0) > 0 then
+        labels[#labels + 1], colors[#colors + 1] = name, colorOf[name]
+      end
+    end
     if hasOther then labels[#labels + 1], colors[#colors + 1] = "Other", REP_OTHER end
     if hasLoss then labels[#labels + 1], colors[#colors + 1] = "Lost", ns.BEHIND_COLOR end
     spec.caption = LegendText(labels, colors)
