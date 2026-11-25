@@ -6,6 +6,8 @@
     * stat tiles (played, kills, quests, deaths, XP/hr, gold/hr, ETA, pace)
     * activity and location composition bars
     * four tabs: Levels (per-level list), Zones, Reputation, Charts
+  The window can be resized from the grip in its bottom-right corner (the size
+  is saved); the tiles, the Levels activity bars and the charts use the room.
 ]]
 
 local addonName, ns = ...
@@ -15,6 +17,9 @@ local FormatTime = ns.FormatTime
 local ROW_H = 20
 local ROW_BAR_W = 150
 local TILE_W, TILE_H, TILE_GAP = 131, 46, 6
+local DEFAULT_W, DEFAULT_H = 580, 700
+local MIN_H, MAX_W, MAX_H = 600, 1600, 1200
+local extraW = 0 -- how much wider than the default the window is
 
 local frame -- main window
 local rows = {} -- pooled per-level row frames
@@ -280,7 +285,8 @@ local function RefreshLevels(agg, pace)
     else
       row.level:SetText("Lv " .. lvl)
     end
-    ns.UpdateStackedBar(row.bar, ns.RowValues(data), ROW_BAR_W)
+    row.bar:SetWidth(ROW_BAR_W + extraW)
+    ns.UpdateStackedBar(row.bar, ns.RowValues(data), ROW_BAR_W + extraW)
     row.kills:SetText(data.kills > 0 and tostring(data.kills) or dim)
     row.quests:SetText(data.quests > 0 and tostring(data.quests) or dim)
     local lt = ns.LevelTime(data)
@@ -372,14 +378,26 @@ local function BuildLevelsView(parent)
     ns.TrackAccent(fs)
     return fs
   end
-  local x = 2
-  local hdr = Hdr("Lvl", x)
+  local hdr = Hdr("Lvl", 2)
   Hdr("Activity", 46)
-  x = 46 + ROW_BAR_W + 8
-  Hdr("Kills", x, 46, "RIGHT");  x = x + 46 + 8
-  Hdr("Quests", x, 46, "RIGHT"); x = x + 46 + 8
-  Hdr("Time", x, 80, "RIGHT");   x = x + 80 + 8
-  local paceHdr = Hdr("Pace", x, 74, "RIGHT")
+  -- The columns after the activity bar follow its width (it stretches with
+  -- the window), so they're chained off a spacer of the same width.
+  local barSpan = CreateFrame("Frame", nil, view)
+  barSpan:SetPoint("TOPLEFT", view, "TOPLEFT", 46, 0)
+  barSpan:SetSize(ROW_BAR_W, 1)
+  view.barSpan = barSpan
+  local prevHdr = barSpan
+  local function ColHdr(text, width)
+    local fs = Hdr(text, 0, width, "RIGHT")
+    fs:ClearAllPoints()
+    fs:SetPoint("TOPLEFT", prevHdr, "TOPRIGHT", 8, 0)
+    prevHdr = fs
+    return fs
+  end
+  ColHdr("Kills", 46)
+  ColHdr("Quests", 46)
+  ColHdr("Time", 80)
+  local paceHdr = ColHdr("Pace", 74)
   local paceHit = CreateFrame("Frame", nil, view)
   paceHit:SetAllPoints(paceHdr)
   paceHit:EnableMouse(true)
@@ -449,17 +467,55 @@ local function UpdateBarWidths()
   end
 end
 
+-- Fit the size-dependent parts to the window's current width.
+local function LayoutWindow()
+  local w = frame:GetWidth() or DEFAULT_W
+  extraW = math.max(0, math.floor(w - DEFAULT_W))
+  local tw = math.max(TILE_W, (w - 40 - 3 * TILE_GAP) / 4)
+  for i, def in ipairs(TILE_DEFS) do
+    local tile = tiles[def.id]
+    local col, line = (i - 1) % 4, math.floor((i - 1) / 4)
+    tile:SetWidth(tw)
+    tile:ClearAllPoints()
+    tile:SetPoint("TOPLEFT", frame, "TOPLEFT", 20 + col * (tw + TILE_GAP), -48 - line * (TILE_H + TILE_GAP))
+  end
+  if views.levels and views.levels.barSpan then
+    views.levels.barSpan:SetWidth(ROW_BAR_W + extraW)
+  end
+end
+
+local function SaveGeometry()
+  local db = ns.EnsureDB()
+  db.window = db.window or {}
+  local point, _, relPoint, x, y = frame:GetPoint()
+  db.window.point, db.window.relPoint, db.window.x, db.window.y = point, relPoint, x, y
+  db.window.w, db.window.h = frame:GetWidth(), frame:GetHeight()
+end
+
 local function BuildWindow()
   frame = CreateFrame("Frame", "ChronologFrame", UIParent, ns.BACKDROP_TEMPLATE)
-  frame:SetSize(580, 700)
 
-  -- Restore saved position (falls back to screen center on first use).
+  -- Restore saved size and position (falls back to the default size at the
+  -- screen center on first use).
   local wdb = ns.EnsureDB()
+  local saved = wdb.window or {}
+  local function Clamp(v, lo, hi, def)
+    v = tonumber(v) or def
+    return math.min(hi, math.max(lo, v))
+  end
+  frame:SetSize(Clamp(saved.w, DEFAULT_W, MAX_W, DEFAULT_W), Clamp(saved.h, MIN_H, MAX_H, DEFAULT_H))
   frame:ClearAllPoints()
-  if wdb.window and wdb.window.point then
-    frame:SetPoint(wdb.window.point, UIParent, wdb.window.point, wdb.window.x or 0, wdb.window.y or 0)
+  if saved.point then
+    frame:SetPoint(saved.point, UIParent, saved.relPoint or saved.point, saved.x or 0, saved.y or 0)
   else
     frame:SetPoint("CENTER")
+  end
+  frame:SetResizable(true)
+  if frame.SetResizeBounds then
+    frame:SetResizeBounds(DEFAULT_W, MIN_H, MAX_W, MAX_H)
+  elseif frame.SetMinResize then
+    frame:SetMinResize(DEFAULT_W, MIN_H)
+    frame:SetMaxResize(MAX_W, MAX_H)
   end
 
   frame:SetFrameStrata("HIGH")
@@ -475,10 +531,7 @@ local function BuildWindow()
   frame:SetScript("OnDragStart", frame.StartMoving)
   frame:SetScript("OnDragStop", function(self)
     self:StopMovingOrSizing()
-    local point, _, _, x, y = self:GetPoint()
-    local db = ns.EnsureDB()
-    db.window = db.window or {}
-    db.window.point, db.window.x, db.window.y = point, x, y
+    SaveGeometry()
   end)
   frame:SetClampedToScreen(true)
   frame:Hide()
@@ -606,16 +659,51 @@ local function BuildWindow()
   hint:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 20, 16)
   hint:SetText("Hover anything for details   |   /chrono help")
 
+  -- Resize grip (bottom-right). Right-click puts the default size back.
+  local grip = CreateFrame("Button", nil, frame)
+  grip:SetSize(16, 16)
+  grip:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -9, 9)
+  grip:SetFrameLevel((frame:GetFrameLevel() or 1) + 10)
+  grip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+  grip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
+  grip:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
+  grip:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+  grip:SetScript("OnMouseDown", function(_, button)
+    if button == "LeftButton" then frame:StartSizing("BOTTOMRIGHT") end
+  end)
+  grip:SetScript("OnMouseUp", function(_, button)
+    frame:StopMovingOrSizing()
+    if button == "RightButton" then frame:SetSize(DEFAULT_W, DEFAULT_H) end
+    SaveGeometry()
+  end)
+  grip:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_TOP")
+    GameTooltip:AddLine("Drag to resize", 1, 1, 1)
+    GameTooltip:AddLine("Right-click to reset the size.", 0.6, 0.6, 0.6)
+    GameTooltip:Show()
+  end)
+  grip:SetScript("OnLeave", function() GameTooltip:Hide() end)
+  frame.grip = grip
+
+  -- Re-lay out right away while resizing (cheap), but redraw the contents at
+  -- most every 0.05s.
+  frame:SetScript("OnSizeChanged", function(self)
+    LayoutWindow()
+    self.resized = true
+  end)
+
   -- live refresh while shown
   frame:SetScript("OnShow", function(self)
+    LayoutWindow()
     UpdateBarWidths()
     ns.Refresh()
     self.elapsed = 0
   end)
   frame:SetScript("OnUpdate", function(self, e)
     self.elapsed = (self.elapsed or 0) + e
-    if self.elapsed >= 1 then
+    if self.elapsed >= 1 or (self.resized and self.elapsed >= 0.05) then
       self.elapsed = 0
+      self.resized = false
       UpdateBarWidths()
       ns.Refresh()
     end

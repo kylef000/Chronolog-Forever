@@ -551,6 +551,41 @@ step("main window builds and refreshes all tabs / sources", function()
   end
 end)
 
+step("window resizes: tiles and level bars stretch, size is saved and clamped", function()
+  local f = ChronologFrame
+  eq(f.w, 580, "default width"); eq(f.h, 700, "default height")
+  assert(f.grip, "resize grip")
+  -- widen to 1000: tiles share the extra room, the activity bar takes it all
+  f.GetWidth = function() return 1000 end
+  f.GetHeight = function() return 800 end
+  f.scripts.OnSizeChanged(f)
+  local tileW
+  for _, t in ipairs(ALL_FRAMES) do
+    if t.edge and t.value and t.sub then tileW = t.w end
+  end
+  near(tileW, (1000 - 40 - 18) / 4, "tile width")
+  local span
+  for _, t in ipairs(ALL_FRAMES) do if t.w == 150 + 420 then span = t end end
+  assert(span, "activity bar span widened by 420")
+  UPDATE(0.06) -- redraw after a resize
+  local rowBar
+  for _, t in ipairs(ALL_FRAMES) do if t.segs and t.w == 570 then rowBar = t end end
+  assert(rowBar, "level rows' activity bars widened")
+  f.grip.scripts.OnMouseUp(f.grip, "LeftButton")
+  eq(ChronologForeverDB.window.w, 1000, "width saved"); eq(ChronologForeverDB.window.h, 800, "height saved")
+  -- right-click resets
+  f.grip.scripts.OnMouseUp(f.grip, "RightButton")
+  eq(f.w, 580); eq(f.h, 700)
+  -- narrower than the default never shrinks the tiles below their normal size
+  f.GetWidth = function() return 100 end
+  f.scripts.OnSizeChanged(f)
+  for _, t in ipairs(ALL_FRAMES) do
+    if t.edge and t.value and t.sub then eq(t.w, 131, "min tile width") end
+  end
+  f.GetWidth, f.GetHeight = nil, nil
+  f.scripts.OnSizeChanged(f)
+end)
+
 step("row / tile / bar / chart column tooltips run", function()
   for _, f in ipairs(ALL_FRAMES) do
 

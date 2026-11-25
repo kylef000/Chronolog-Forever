@@ -18,6 +18,14 @@ workflow refuses to publish a tag without one.
   - Level tooltips show that level's top factions.
   - The widget can show reputation gained this level, and `/chrono export`
     includes a per-level, per-faction table.
+- **Resizable window**: drag the bottom-right corner of the main window to make
+  it wider or taller (right-click the corner to reset). Charts get wider bars,
+  so a full 1-60 run stays readable, and the size is remembered.
+
+### Changed
+
+- Charts label every level, or every other level, when there's room (instead
+  of every 5th once you're past 20 levels).
 
 ### Notes
 

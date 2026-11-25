@@ -633,8 +633,8 @@ function ns.BuildChartsView(parent)
   local caption = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   caption:SetPoint("BOTTOMLEFT", view, "BOTTOMLEFT", 0, 2)
   caption:SetJustifyH("LEFT")
-  -- Long legends (Rep: faction names) wrap onto a second line.
-  caption:SetWidth(400)
+  -- Long legends (Rep: faction names) wrap onto a second line. The width
+  -- follows the chart (set in Refresh).
   caption:SetWordWrap(true)
   caption:SetMaxLines(2)
 
@@ -759,6 +759,11 @@ function ns.BuildChartsView(parent)
 
     local pace = ns.GetPace(agg.source)
     local spec = BuildSpec(mode, agg, pace)
+    local vw = view:GetWidth()
+    if vw and vw > 0 then
+      -- Leave room for the reference button in pace mode.
+      caption:SetWidth(math.max(200, vw - ((mode == "pace" and agg.source ~= "ALL") and 130 or 0)))
+    end
     caption:SetText(spec.caption or "")
     headline:SetText(spec.headline or "")
     headline:SetShown(spec.headline ~= nil and #spec.points > 0)
@@ -848,7 +853,8 @@ function ns.BuildChartsView(parent)
     local barW = math.max(2, math.min(slot * (paired and 0.8 or 0.7), paired and 36 or 26))
     local inset = (slot - barW) / 2
     local cur = (agg.source == nil) and ns.state.currentLevel or nil
-    local every = (n <= 20) and 1 or 5
+    -- Label every level when there's room, else every 2nd or 5th.
+    local every = (slot >= 20) and 1 or (slot >= 11) and 2 or 5
     for i, p in ipairs(points) do
       local c = Col(i)
       c.tip = p.tip

@@ -107,6 +107,10 @@ each level-up" setting.
 
 ## The window (`/chrono`)
 
+- **Resizable**: drag the grip in the bottom-right corner to make the window
+  wider or taller; right-click it to go back to the default size. The stat
+  tiles, the Levels activity bars and the charts use the extra room, and the
+  size is remembered.
 - **Character selector** (top right): this character, your other characters,
   or **All characters** combined. Other characters appear after you've logged
   them in once with this addon.
