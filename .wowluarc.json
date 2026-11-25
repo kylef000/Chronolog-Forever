@@ -1,0 +1,8 @@
+{
+  "flavors": ["forever"],
+  "ignore": ["tests/", ".venv/"],
+  "globals": {
+    "read": ["EllesmereUI", "GetMinimapShape"],
+    "write": ["ChronologForever_OnAddonCompartment*"]
+  }
+}

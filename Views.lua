@@ -60,11 +60,16 @@ function ns.BuildZonesView(parent)
   end)
   ns.SkinFonts(view)
 
+  ---@class ChronologZoneRow : Frame
+  ---@field zone string? -- set by the refresh
+  ---@field secs number?
+  ---@field subs table<string, number>?
+
   local rows = {}
   local function AcquireRow(i)
     local row = rows[i]
     if row then return row end
-    row = CreateFrame("Frame", nil, content)
+    row = CreateFrame("Frame", nil, content) --[[@as ChronologZoneRow]]
     row:SetHeight(ZONE_ROW_H)
     row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     row.name:SetPoint("LEFT", row, "LEFT", 2, 0)
@@ -82,7 +87,7 @@ function ns.BuildZonesView(parent)
     row.time:SetWidth(80)
     row.time:SetJustifyH("RIGHT")
     row.hl = row:CreateTexture(nil, "BACKGROUND")
-    row.hl:SetAllPoints(true)
+    row.hl:SetAllPoints()
     ns.SetColor(row.hl, 1, 1, 1, 0.06)
     row.hl:Hide()
     row:EnableMouse(true)
@@ -277,11 +282,17 @@ function ns.BuildReputationView(parent)
   end)
   ns.SkinFonts(view)
 
+  ---@class ChronologRepRow : Frame
+  ---@field faction string? -- set by the refresh
+  ---@field value number?
+  ---@field colored boolean?
+  ---@field info table? -- current standing: { label, color, value, max }
+
   local rows = {}
   local function AcquireRow(i)
     local row = rows[i]
     if row then return row end
-    row = CreateFrame("Frame", nil, content)
+    row = CreateFrame("Frame", nil, content) --[[@as ChronologRepRow]]
     row:SetHeight(REP_ROW_H)
     row.swatch = row:CreateTexture(nil, "ARTWORK")
     row.swatch:SetSize(8, 8)
@@ -302,7 +313,7 @@ function ns.BuildReputationView(parent)
     row.amount:SetWidth(70)
     row.amount:SetJustifyH("RIGHT")
     row.hl = row:CreateTexture(nil, "BACKGROUND")
-    row.hl:SetAllPoints(true)
+    row.hl:SetAllPoints()
     ns.SetColor(row.hl, 1, 1, 1, 0.06)
     row.hl:Hide()
     row:EnableMouse(true)
@@ -781,7 +792,7 @@ function ns.BuildChartsView(parent)
   area:SetPoint("TOPLEFT", view, "TOPLEFT", 40, -32)
   area:SetPoint("BOTTOMRIGHT", view, "BOTTOMRIGHT", -6, 40)
   local bg = area:CreateTexture(nil, "BACKGROUND")
-  bg:SetAllPoints(true)
+  bg:SetAllPoints()
   ns.SetColor(bg, 0, 0, 0, 0.25)
 
   -- Annotations (average line, headline, running-total line) live on their
@@ -848,7 +859,7 @@ function ns.BuildChartsView(parent)
     c = CreateFrame("Frame", nil, area)
     c:EnableMouse(true)
     c.hl = c:CreateTexture(nil, "BACKGROUND")
-    c.hl:SetAllPoints(true)
+    c.hl:SetAllPoints()
     c.segs = {}
     c.label = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     c.label:SetPoint("TOP", c, "BOTTOM", 0, -3)

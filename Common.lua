@@ -78,7 +78,7 @@ function ns.CreateStackedBar(parent, height, colors)
   local bar = CreateFrame("Frame", nil, parent)
   bar:SetHeight(height)
   bar.bg = bar:CreateTexture(nil, "BACKGROUND")
-  bar.bg:SetAllPoints(true)
+  bar.bg:SetAllPoints()
   ns.SetColor(bar.bg, 0, 0, 0, 0.35)
   bar.segs = {}
   for i = 1, #colors do

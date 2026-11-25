@@ -66,6 +66,8 @@ local ancestorCache, rectCache = {}, {}
 local IDENTITY = { 0, 1, 0, 1 }
 
 -- Is `top` the map itself or one of `child`'s parent maps?
+---@param child number uiMapID
+---@param top number uiMapID
 local function IsWithin(child, top)
   if child == top then return true end
   local key = child .. ":" .. top
@@ -86,6 +88,8 @@ local function IsWithin(child, top)
 end
 
 -- Where `child` sits on `top`, as {left, right, top, bottom} in 0..1.
+---@param child number uiMapID
+---@param top number uiMapID
 local function RectOn(child, top)
   if child == top then return IDENTITY end
   local key = child .. ":" .. top
@@ -265,7 +269,7 @@ local function BuildPanel()
   panel:SetFrameLevel((map.ScrollContainer:GetFrameLevel() or 1) + 60)
   panel:EnableMouse(true)
   local bg = panel:CreateTexture(nil, "BACKGROUND")
-  bg:SetAllPoints(true)
+  bg:SetAllPoints()
   ns.SetColor(bg, 0, 0, 0, 0.65)
 
   local function Btn(width, onClick, tip)

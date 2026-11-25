@@ -38,11 +38,14 @@ end
 --------------------------------------------------------------------------------
 -- Row pool (Levels tab)
 --------------------------------------------------------------------------------
+---@class ChronologLevelRow : Frame
+---@field data table? -- set by the refresh: { lvl, row, avg, pace, current }
+
 local function AcquireRow(index, parent)
   local row = rows[index]
   if row then return row end
 
-  row = CreateFrame("Frame", nil, parent)
+  row = CreateFrame("Frame", nil, parent) --[[@as ChronologLevelRow]]
   row:SetHeight(ROW_H)
   row:EnableMouse(true)
 
@@ -68,12 +71,12 @@ local function AcquireRow(index, parent)
   row.pace = Col(row.time, 74)
 
   row.highlight = row:CreateTexture(nil, "BACKGROUND")
-  row.highlight:SetAllPoints(true)
+  row.highlight:SetAllPoints()
   ns.SetColor(row.highlight, 1, 1, 1, 0.06)
   row.highlight:Hide()
 
   row.stripe = row:CreateTexture(nil, "BACKGROUND")
-  row.stripe:SetAllPoints(true)
+  row.stripe:SetAllPoints()
 
   row:SetScript("OnEnter", function(self)
     self.highlight:Show()
@@ -110,12 +113,15 @@ local TILE_DEFS = {
   { id = "pace",   label = "Pace" },
 }
 
+---@class ChronologTile : Frame
+---@field tip fun(tip: GameTooltip)? -- set by SetTile; fills the hover tooltip
+
 local function BuildTile(parent, def)
-  local t = CreateFrame("Frame", nil, parent)
+  local t = CreateFrame("Frame", nil, parent) --[[@as ChronologTile]]
   t:SetSize(TILE_W, TILE_H)
   t:EnableMouse(true)
   t.bg = t:CreateTexture(nil, "BACKGROUND")
-  t.bg:SetAllPoints(true)
+  t.bg:SetAllPoints()
   ns.SetColor(t.bg, 0, 0, 0, 0.28)
   t.edge = t:CreateTexture(nil, "BORDER")
   t.edge:SetPoint("TOPLEFT", t, "TOPLEFT", 0, 0)
@@ -608,7 +614,7 @@ local function BuildWindow()
   charBtn:SetSize(190, 32)
   charBtn:SetPoint("RIGHT", close, "LEFT", -6, 0)
   charBtn.bg = charBtn:CreateTexture(nil, "BACKGROUND")
-  charBtn.bg:SetAllPoints(true)
+  charBtn.bg:SetAllPoints()
   ns.SetColor(charBtn.bg, 0, 0, 0, 0.28)
   charBtn.edge = charBtn:CreateTexture(nil, "BORDER")
   charBtn.edge:SetPoint("TOPLEFT", charBtn, "TOPLEFT", 0, 0)
