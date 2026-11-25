@@ -18,6 +18,12 @@ workflow refuses to publish a tag without one.
   - Level tooltips show that level's flights, and the widget can show
     "Flying" for the current level. `/chrono export` includes the new columns.
 
+### Fixed
+
+- **Boat detection in combat**: moving around in a fight and then stopping
+  could be mistaken for riding a boat, zeppelin or tram, counting a moment
+  after the fight as travel.
+
 ### Notes
 
 - Flights are recorded from this version on. Flight time is part of Travel,

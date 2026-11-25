@@ -93,17 +93,25 @@ end
 --------------------------------------------------------------------------------
 local lastMap, lastX, lastY
 local movingSamples = 0
+-- Over the ticks since the last sample: was the speed known to be 0 (and not on
+-- a taxi) at every one of them, and was it known to be moving at any? A sample
+-- compares a whole interval's displacement, so one reading at its end isn't
+-- enough: in combat the speed is secret while you move and can read 0 just as
+-- you stop, which looked like standing still on a boat.
+local intervalStill, intervalMoved = true, false
 
 local function ResetTransport()
   lastMap, lastX, lastY = nil, nil, nil
   movingSamples = 0
+  intervalStill, intervalMoved = true, false
   ns.state.onTransport = false
 end
 
 local function UpdateTransport(map, x, y, secs)
   local s = ns.state
-  local moving = s.lastMoving
-  if lastMap == map and lastX and moving == false and not s.lastOnTaxi and secs > 0 then
+  local still, moved = intervalStill, intervalMoved
+  intervalStill, intervalMoved = true, false
+  if lastMap == map and lastX and still and secs > 0 then
     local w, h = MapSize(map)
     local dx, dy = (x - lastX) * w, (y - lastY) * h
     local yps = sqrt(dx * dx + dy * dy) / secs
@@ -112,9 +120,10 @@ local function UpdateTransport(map, x, y, secs)
     else
       movingSamples = 0
     end
-  elseif moving ~= nil or lastMap ~= map then
-    -- Moving by ourselves, on a taxi, or a new map: start over. (While the
-    -- speed is secret, e.g. in combat, keep the current state.)
+  elseif moved or lastMap ~= map then
+    -- Moving by ourselves, on a taxi, or a new map: start over. (If the speed
+    -- was secret for part of the interval, e.g. in combat, keep the current
+    -- state.)
     movingSamples = 0
   end
   s.onTransport = movingSamples >= 2
@@ -165,6 +174,9 @@ end
 
 -- Called by the Core ticker with each tick's time and the bucket it went to.
 function ns.HeatTick(dt, bucket, level)
+  local s = ns.state
+  if s.lastMoving ~= false or s.lastOnTaxi then intervalStill = false end
+  if s.lastMoving or s.lastOnTaxi then intervalMoved = true end
   if bucket == "afk" then return end
   acc = acc + dt
   if bucket == "combat" then accCombat = accCombat + dt end

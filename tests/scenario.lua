@@ -219,6 +219,24 @@ step("transport: standing still while the map position moves -> travel", functio
   eq(NS.state.onTransport, false)
 end)
 
+step("transport: moving with a secret speed, then stopping, isn't a boat", function()
+  -- Seen in game: in combat the speed is secret while you move, then can read
+  -- 0 at the moment of the sample. A second's movement must not be put down to
+  -- a boat because of that one reading.
+  W.speed = 0; W.pos = { 0.5, 0.5 }; TICKS(8, 0.25)
+  local x = 0.5
+  for i = 1, 4 do
+    W.speedSecret = true
+    for j = 1, 3 do x = x + 0.0015; W.pos = { x, 0.5 }; TICKS(1, 0.25) end -- ~18 yd/s
+    W.speedSecret = false; TICKS(1, 0.25) -- speed reads 0 at the sample
+    eq(NS.state.onTransport, false, "sample " .. i)
+  end
+  -- A real boat ride is still detected afterwards.
+  for i = 1, 3 do x = x + 0.005; W.pos = { x, 0.5 }; TICKS(4, 0.25) end
+  eq(NS.state.onTransport, true, "boat after")
+  W.pos = { 0.5, 0.5 }; FIRE("PLAYER_ENTERING_WORLD")
+end)
+
 local function CountCells(pred)
   local n = 0
   for _, v in pairs(ChronologForeverDB.heat[1411]) do
