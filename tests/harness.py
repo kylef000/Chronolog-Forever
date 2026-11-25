@@ -3,7 +3,7 @@ from lupa.lua51 import LuaRuntime
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-FILES = "Core Skin Common Pace Recovery Heat Views UI Widget Export Minimap Settings".split()
+FILES = "Core Skin Common Pace Recovery Heat Views UI Widget Export Minimap HeatMap Settings".split()
 WITH_EUI = len(sys.argv) > 1 and sys.argv[1] == "eui"
 
 lua = LuaRuntime(unpack_returned_tuples=True)
@@ -121,8 +121,8 @@ function InCombatLockdown() return W.combat end
 Enum = { UIMapType = { Cosmic = 0, World = 1, Continent = 2, Zone = 3, Dungeon = 4, Micro = 5, Orphan = 6 } }
 W.mapID, W.pos, W.subzone = 1411, { 0.5, 0.5 }, "Razor Hill"
 local MAPS = {
-  [1411] = { mapID = 1411, mapType = 3, parentMapID = 1414 },
-  [1414] = { mapID = 1414, mapType = 2, parentMapID = 947 },
+  [1411] = { mapID = 1411, mapType = 3, parentMapID = 1414, name = "Durotar" },
+  [1414] = { mapID = 1414, mapType = 2, parentMapID = 947, name = "Kalimdor" },
   [9001] = { mapID = 9001, mapType = 5, parentMapID = 1411 },
 }
 MAP_POS_CALLS = {}
@@ -139,6 +139,40 @@ C_Map = {
   end,
 }
 function GetSubZoneText() return W.subzone end
+-- Durotar (1411) sits at x 0.5-0.7, y 0.4-0.6 of Kalimdor (1414).
+C_Map.GetMapRectOnMap = function(child, top)
+  if child == 1411 and top == 1414 then return 0.5, 0.7, 0.4, 0.6 end
+end
+
+-- World map + data provider plumbing
+MapCanvasDataProviderMixin = {
+  OnAdded = function(self, m) self.owningMap = m end,
+  GetMap = function(self) return self.owningMap end,
+}
+function CreateFromMixins(...)
+  local t = {}
+  for _, m in ipairs({ ... }) do for k, v in pairs(m) do t[k] = v end end
+  return t
+end
+W.viewMap, W.cursor, W.mouseOverMap = 1411, { 0.5, 0.5 }, false
+local mapCanvas = NewObj("Frame")
+WorldMapFrame = NewObj("Frame", "WorldMapFrame")
+WorldMapFrame.shown = false
+WorldMapFrame.ScrollContainer = NewObj("Frame")
+WorldMapFrame.ScrollContainer.IsMouseOver = function() return W.mouseOverMap end
+WorldMapFrame.GetMapID = function() return W.viewMap end
+WorldMapFrame.GetCanvas = function() return mapCanvas end
+WorldMapFrame.GetNormalizedCursorPosition = function() return W.cursor[1], W.cursor[2] end
+WorldMapFrame.AddDataProvider = function(self, p) MAP_PROVIDER = p; p:OnAdded(self) end
+
+-- Tooltip that remembers its owner and lines
+GameTooltip.shown = false
+GameTooltip.SetOwner = function(self, o) self.owner = o; self.lines = {} end
+GameTooltip.GetOwner = function(self) return self.owner end
+GameTooltip.AddLine = function(self, s) self.lines = self.lines or {}; table.insert(self.lines, tostring(s)) end
+GameTooltip.AddDoubleLine = function(self, a, b)
+  self.lines = self.lines or {}; table.insert(self.lines, tostring(a) .. " = " .. tostring(b))
+end
 local prof = 0
 function debugprofilestop() prof = prof + 0.01; return prof end
 

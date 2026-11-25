@@ -1111,6 +1111,7 @@ SlashCmdList["CHRONOLOG"] = function(msg)
     print("  |cffffff00/chrono widget|r - toggle the current-level widget")
     print("  |cffffff00/chrono widget scale <n>|r / |cffffff00alpha <n>|r / |cffffff00stat <name>|r - widget options")
     print("  |cffffff00/chrono pace|r - change what your level times are compared against")
+    print("  |cffffff00/chrono heatmap|r - show/hide the heatmap on the world map")
     print("  |cffffff00/chrono minimap|r - show/hide the minimap button")
     print("  |cffffff00/chrono export|r - copy your data as CSV")
     print("  |cffffff00/chrono options|r - open the settings")
@@ -1123,6 +1124,11 @@ SlashCmdList["CHRONOLOG"] = function(msg)
     print(TAG .. ": this will erase all tracked data. Type |cffffff00/chrono reset yes|r to confirm.")
   elseif cmd == "widget" then
     WidgetCommand(rest)
+  elseif cmd == "heatmap" or cmd == "map" then
+    if ns.ToggleHeatmap then
+      local shown = ns.ToggleHeatmap()
+      print(TAG .. ": world map heatmap " .. (shown and "on" or "off") .. ". Open your map (M) to see it.")
+    end
   elseif cmd == "pace" then
     if ns.CyclePaceRefCommand then ns.CyclePaceRefCommand() end
   elseif cmd == "minimap" then

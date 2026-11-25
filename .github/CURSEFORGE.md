@@ -12,7 +12,11 @@ other characters.
   and Other, so the buckets always add up. Travel counts running, mounts,
   travel forms (Ghost Wolf, Travel Form) and flight paths. Standing still on
   a mount doesn't count as travel.
-- **Where you were.** Open world, town, dungeons and PvP, plus time per zone.
+- **Where you were.** Open world, town, dungeons and PvP, plus time per zone
+  and subzone.
+- **World map heatmap.** Your map is colored by where you actually spent your
+  time. Switch between all time and combat only, this character and all your
+  characters, or a level range. Hover any spot for details.
 - **Pace splits.** Each level is compared against your *best splits* (the
   fastest any of your characters took for that level) or a character you pick.
   It's green when you're ahead and red when you're behind, with a running total.
@@ -37,5 +41,5 @@ other characters.
 
 `/chrono` opens the window. `/chrono help` lists everything else.
 
-<!-- Screenshots to add: main window (Levels tab), Charts → Time, Charts → Pace,
+<!-- Screenshots to add: main window (Levels tab), Charts → Time, Charts → Pace, the world map heatmap,
      the widget, and the Options → AddOns page. -->

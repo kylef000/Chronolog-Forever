@@ -219,6 +219,83 @@ step("transport: standing still while the map position moves -> travel", functio
   eq(NS.state.onTransport, false)
 end)
 
+local function CountCells(pred)
+  local n = 0
+  for _, v in pairs(ChronologForeverDB.heat[1411]) do
+    if not pred or pred(ns.HeatUnpack(v)) then n = n + 1 end
+  end
+  return n
+end
+
+step("heatmap: hooked into the world map as a data provider", function()
+  assert(MAP_PROVIDER, "provider added")
+  assert(ChronologHeatmapPanel, "controls built")
+end)
+
+step("heatmap: zone map draws one tile per visited cell; layers and level brackets filter", function()
+  local o = ns.HeatmapOptions()
+  o.shown, o.layer, o.source, o.bracket = true, "time", nil, 1
+  W.viewMap = 1411; WorldMapFrame.shown = true
+  MAP_PROVIDER:RefreshAllData()
+  local n = CountCells()
+  assert(n >= 3, "cells recorded")
+  eq(ns.HeatmapStats().drawn, n, "one tile per cell")
+  o.layer = "combat"; ns.RedrawHeatmap()
+  local nc = CountCells(function(t, c) return c > 0 end)
+  eq(ns.HeatmapStats().drawn, nc, "combat layer")
+  assert(nc >= 1 and nc < n, "combat is a subset")
+  o.layer = "time"
+  o.bracket = 3; ns.RedrawHeatmap() -- levels 11-20: where we are
+  eq(ns.HeatmapStats().drawn, n)
+  o.bracket = 4; ns.RedrawHeatmap() -- levels 21-30: nothing yet
+  eq(ns.HeatmapStats().drawn, 0)
+  o.bracket = 1; ns.RedrawHeatmap()
+end)
+
+step("heatmap: a continent map shows the zone's data inside the zone's rectangle", function()
+  W.viewMap = 1414; MAP_PROVIDER:OnMapChanged()
+  local st = ns.HeatmapStats()
+  assert(st.drawn >= 1, "projected")
+  for d in pairs(st.grid) do
+    local x, y = (d % 100) / 100, math.floor(d / 100) / 100
+    assert(x >= 0.5 and x < 0.7 and y >= 0.4 and y < 0.6, "inside Durotar's rectangle")
+  end
+  W.viewMap = 9999; ns.RedrawHeatmap()
+  eq(ns.HeatmapStats().drawn, 0, "unrelated map shows nothing")
+  W.viewMap = 1411; ns.RedrawHeatmap()
+end)
+
+step("heatmap: hover tooltip follows the cursor without taking the mouse", function()
+  GameTooltip.shown = false
+  W.mouseOverMap = true; W.cursor = { 0.505, 0.505 }
+  UPDATE(0.06)
+  eq(GameTooltip.shown, true, "tooltip shown")
+  local text = table.concat(GameTooltip.lines, "\n")
+  assert(text:find("Durotar") and text:find("Time spent here") and text:find("Around here"), text)
+  W.cursor = { 0.955, 0.955 }; UPDATE(0.06)
+  eq(GameTooltip.shown, false, "empty spot hides it")
+  -- someone else's tooltip is left alone
+  GameTooltip:SetOwner(UIParent); GameTooltip:Show()
+  W.cursor = { 0.505, 0.505 }; UPDATE(0.06)
+  eq(GameTooltip:GetOwner(), UIParent, "not stolen")
+  GameTooltip:Hide(); W.mouseOverMap = false
+end)
+
+step("heatmap: map controls, all characters, /chrono heatmap, setting", function()
+  local o = ns.HeatmapOptions()
+  for _, f in ipairs(ALL_FRAMES) do if f.heatBtn then f.scripts.OnClick(f) end end
+  eq(o.shown, false); eq(o.layer, "combat"); eq(o.source, "ALL"); eq(o.bracket, 2)
+  eq(ns.HeatmapStats().drawn, 0, "off draws nothing")
+  SlashCmdList.CHRONOLOG("heatmap")
+  eq(o.shown, true)
+  o.layer, o.bracket = "time", 1; ns.RedrawHeatmap()
+  assert(ns.HeatmapStats().drawn >= 1, "all characters")
+  o.source = nil
+  PROXIES.ChronologForever_Heatmap.set(false); eq(PROXIES.ChronologForever_Heatmap.get(), false)
+  PROXIES.ChronologForever_Heatmap.set(true)
+  WorldMapFrame.shown = false
+end)
+
 step("ETA: recent XP rate -> time to next level and to 60", function()
   TICKS(600, 0.25) -- 150s of active play
   W.xp = 400; FIRE("PLAYER_XP_UPDATE")

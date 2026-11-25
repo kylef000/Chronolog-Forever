@@ -42,11 +42,28 @@ Separate counters (these can overlap the buckets):
   within it (hover a zone on the Zones tab).
 - **Position heatmap data**: once a second, your position on the zone map is
   added to a 100 x 100 grid (time, combat time and level range per cell; AFK
-  time isn't mapped). A world-map heatmap overlay that uses it is coming. Cave
-  and building maps are folded into their zone. Positions inside instances
-  aren't available to addons, so dungeon time isn't mapped. A full 1-60
-  character adds roughly 100-300 KB of saved data; `/chrono debug` shows the
-  current size.
+  time isn't mapped). Cave and building maps are folded into their zone.
+  Positions inside instances aren't available to addons, so dungeon time isn't
+  mapped. A full 1-60 character adds roughly 100-300 KB of saved data;
+  `/chrono debug` shows the current size.
+
+## World map heatmap
+
+Open your map (M) and it's colored by where you've spent your time, from blue
+(a little) to red (a lot). The scale is logarithmic so quest hubs don't wash
+out everything else.
+
+- **Zone maps** show each visited spot; **continent maps** show every zone at
+  once, so your whole leveling path is visible.
+- **Controls** at the bottom-left of the map:
+  - **On/off.**
+  - **Time / Combat:** everywhere you've been, or only where you fought.
+  - **This character / All characters.**
+  - **Level bracket:** e.g. only where you were at levels 21-30.
+- **Hover** a colored spot for the time spent there, combat share, the levels
+  you were, and the total for the surrounding area. The overlay doesn't take
+  mouse clicks, so map navigation and other addons' map icons work as normal.
+- `/chrono heatmap` or the settings turn it on and off.
 
 **Time from before you installed it:** at login Chronolog-Forever reads
 `/played`, which tells it how long you've already been at your current level,
@@ -118,6 +135,7 @@ seconds of tracked time qualify for these and for per-hour rates.
 | `/chrono widget alpha <0.2-1>` | Widget opacity. |
 | `/chrono widget stat <name>` | Toggle a widget stat: `kills quests dungeons grouped deaths kph xph gph crafting dead eta pace`. |
 | `/chrono pace` | Change the pace reference (best splits, or one of your characters). |
+| `/chrono heatmap` | Show/hide the heatmap on the world map. |
 | `/chrono minimap` | Show/hide the minimap button (left-click: window, right-click: widget). |
 | `/chrono export` | Copy your data as CSV (per level, and per level and zone). |
 | `/chrono options` | Open the settings. |
