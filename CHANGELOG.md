@@ -4,6 +4,25 @@ Each release's notes on GitHub (and CurseForge) are taken from its section
 below. Add a `## vX.Y.Z - YYYY-MM-DD` section before tagging; the release
 workflow refuses to publish a tag without one.
 
+## Unreleased
+
+### New
+
+- **Reputation tracking**: reputation gained with each faction is now recorded
+  per level.
+  - A new **Reputation** tab lists every faction you've gained (or lost)
+    reputation with, along with your current standing. Hover a faction to see
+    which levels it came from.
+  - A new **Rep** chart shows reputation gained per level, colored by faction.
+  - Level tooltips show that level's top factions.
+  - The widget can show reputation gained this level, and `/chrono export`
+    includes a per-level, per-faction table.
+
+### Notes
+
+- Reputation is recorded from this version on; earlier levels have none.
+  Reputation earned in a session that isn't saved (a crash) can't be recovered.
+
 ## v1.4.0 - 2026-11-25
 
 The first release for **WoW Forever**. It replaces the old Ascension

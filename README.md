@@ -40,6 +40,9 @@ Separate counters (these can overlap the buckets):
   **Deaths**, **XP gained**, **Gold gained / spent**.
 - **Zones and subzones**: seconds spent in each zone, and in each subzone
   within it (hover a zone on the Zones tab).
+- **Reputation**: reputation gained (or lost) with each faction, read from the
+  "Reputation with ... increased by ..." chat line. Works in any client
+  language.
 - **Position heatmap data**: once a second, your position on the zone map is
   added to a 100 x 100 grid (time, combat time and level range per cell; AFK
   time isn't mapped). Cave and building maps are folded into their zone.
@@ -114,12 +117,15 @@ each level-up" setting.
   and pace against your reference. Hover a row for the full breakdown,
   a comparison against your average level, and that level's top zones.
 - **Zones tab**: time per zone, biggest first.
+- **Reputation tab**: reputation gained per faction, biggest first, with your
+  current standing. Hover a faction to see how much came from each level.
 - **Charts tab** (one column per level, with gridlines and axis):
   - **Time**: stacked by activity.
   - **Where**: share of each level in the world, in town, in dungeons, or in PvP.
   - **Pace**: faster/slower per level plus a running-total line.
   - **XP/hr**, **Kills/hr**, **Gold/hr**: with your average as a dashed line.
   - **Deaths**: per level.
+  - **Rep**: reputation gained per level, colored by faction.
 
 **Busiest level** is the level with the highest share of its time in combat;
 **laziest** has the highest share AFK or idle. Only levels with at least 60

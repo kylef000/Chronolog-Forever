@@ -5,7 +5,7 @@
     * a character selector (this character / others / all)
     * stat tiles (played, kills, quests, deaths, XP/hr, gold/hr, ETA, pace)
     * activity and location composition bars
-    * three tabs: Levels (per-level list), Zones, Charts
+    * four tabs: Levels (per-level list), Zones, Reputation, Charts
 ]]
 
 local addonName, ns = ...
@@ -568,6 +568,7 @@ local function BuildWindow()
   local tabs = {
     { id = "levels", label = "Levels" },
     { id = "zones", label = "Zones" },
+    { id = "rep", label = "Reputation" },
     { id = "charts", label = "Charts" },
   }
   local prevTab
@@ -587,15 +588,17 @@ local function BuildWindow()
     prevTab = btn
   end
 
-  -- Body: holds the three views
+  -- Body: holds the views
   local body = CreateFrame("Frame", nil, frame)
   body:SetPoint("TOPLEFT", tabButtons.levels, "BOTTOMLEFT", 0, -10)
   body:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -20, 34)
 
   views.levels = BuildLevelsView(body)
   views.zones = ns.BuildZonesView(body)
+  views.rep = ns.BuildReputationView(body)
   views.charts = ns.BuildChartsView(body)
   views.zones:Hide()
+  views.rep:Hide()
   views.charts:Hide()
 
   -- footer hint

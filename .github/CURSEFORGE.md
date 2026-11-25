@@ -14,6 +14,8 @@ other characters.
   a mount doesn't count as travel.
 - **Where you were.** Open world, town, dungeons and PvP, plus time per zone
   and subzone.
+- **Reputation by faction.** See which factions you earned reputation with at
+  each level, and your total with each.
 - **World map heatmap.** Your map is colored by where you actually spent your
   time. Switch between all time and combat only, this character and all your
   characters, or a level range. Hover any spot for details.
@@ -23,7 +25,7 @@ other characters.
 - **Next level ETA.** Based on your last 30 minutes of play (AFK excluded),
   with an estimate for reaching 60.
 - **Charts.** Stacked time per level, location share, pace, XP/hour, kills/hour,
-  gold/hour and deaths, with gridlines, averages and hover details.
+  gold/hour, deaths and reputation, with gridlines, averages and hover details.
 - **Counts the level you install on.** Time from before installing is filled in
   from `/played`.
 - **Every character.** Switch between characters, or view your whole account

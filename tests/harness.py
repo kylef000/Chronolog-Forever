@@ -3,7 +3,7 @@ from lupa.lua51 import LuaRuntime
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-FILES = "Core Skin Common Pace Recovery Heat Views UI Widget Export Minimap HeatMap Settings".split()
+FILES = "Core Skin Common Pace Recovery Heat Reputation Views UI Widget Export Minimap HeatMap Settings".split()
 WITH_EUI = len(sys.argv) > 1 and sys.argv[1] == "eui"
 
 lua = LuaRuntime(unpack_returned_tuples=True)
@@ -199,6 +199,20 @@ CreateSettingsButtonInitializer = AUTO
 CreateSettingsListSectionHeaderInitializer = AUTO
 MinimalSliderWithSteppersMixin = AUTO
 COMBATLOG_XPGAIN_FIRSTPERSON = "%s dies, you gain %d experience."
+FACTION_STANDING_INCREASED = "Reputation with %s increased by %d."
+FACTION_STANDING_DECREASED = "Reputation with %s decreased by %d."
+FACTION_STANDING_LABEL4 = "Neutral"; FACTION_STANDING_LABEL5 = "Friendly"
+FACTION_BAR_COLORS = { [4] = { r = 1, g = 1, b = 0 }, [5] = { r = 0, g = 0.6, b = 0.1 } }
+-- Classic-style reputation list: a header, Orgrimmar (Friendly), and a
+-- faction whose values are secret.
+W.factionList = {
+  { "Horde", nil, 4, 0, 0, 0, false, false, true, false, false },
+  { "Orgrimmar", nil, 5, 3000, 9000, 4200, false, false, false, false, true },
+  { "Hidden", nil, SECRET, 0, 3000, 100, false, false, false, false, true },
+}
+FACTION_LIST_CALLS = 0
+function GetNumFactions() FACTION_LIST_CALLS = FACTION_LIST_CALLS + 1; return #W.factionList end
+function GetFactionInfo(i) return unpack(W.factionList[i]) end
 SlashCmdList = {}
 
 function FIRE(event, ...)

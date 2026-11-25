@@ -15,6 +15,7 @@
       (already included in kills/quests/deaths). See Recovery.lua.
     * kills, quests, dungeons, deaths, xp, gold, spent
     * zones     - seconds spent per zone; subzones[zone][subzone] likewise
+    * factions  - net reputation change per faction name (see Reputation.lua)
   Per character (not per level): heat - a position grid per zone map, see Heat.lua.
 
   Time is bucketed by a throttled OnUpdate ticker. Each tick is charged to a
@@ -127,7 +128,7 @@ local NUM_FIELDS = {
 ns.NUM_FIELDS = NUM_FIELDS
 
 local function NewRow()
-  local row = { zones = {}, subzones = {} }
+  local row = { zones = {}, subzones = {}, factions = {} }
   for _, f in ipairs(NUM_FIELDS) do row[f] = 0 end
   return row
 end
@@ -139,6 +140,7 @@ local function MigrateRow(row)
   end
   if type(row.zones) ~= "table" then row.zones = {} end
   if type(row.subzones) ~= "table" then row.subzones = {} end
+  if type(row.factions) ~= "table" then row.factions = {} end
 end
 
 -- The realm name. On Forever GetRealmName() can return "" (e.g. at logout),
@@ -401,6 +403,7 @@ ns.STATS = {
   { key = "gph",      label = "Gold/hr",  get = function(r) return string.format("%.1fg", ns.PerHour(r, "gold", 10000)) end },
   { key = "crafting", label = "Crafting", get = function(r) return ns.FormatTime(r.crafting) end },
   { key = "dead",     label = "Dead",     get = function(r) return ns.FormatTime(r.dead) end },
+  { key = "rep",      label = "Rep",      get = function(r) return ns.FormatNumber(ns.RepGained and ns.RepGained(r) or 0) end },
   { key = "eta",      label = "Next lvl", get = function()
       local t = ns.GetETA and ns.GetETA()
       return t and ns.FormatTime(t) or "-"
@@ -941,6 +944,9 @@ local function MergeInto(dst, src)
     end
     for sub, secs in pairs(subs) do d[sub] = (d[sub] or 0) + secs end
   end
+  for name, v in pairs(src.factions or {}) do
+    dst.factions[name] = (dst.factions[name] or 0) + v
+  end
 end
 
 -- Returns totals, a sorted list of levels, per-level rows and comparison
@@ -1070,6 +1076,7 @@ local function PrintDebug()
   Dbg("last save checkpoint:", cp and string.format("level %s, played %s, %s",
     tostring(cp.level), cp.played and ns.FormatTime(cp.played) or "?",
     cp.stats and cp.stats.kills and "statistics available" or "no statistics") or "(none yet)")
+  if ns.RepDebug then ns.RepDebug(Dbg) end
   if ns.HeatDebug then ns.HeatDebug(Dbg) end
   Dbg("avg tick cost:", state.tickCost and string.format("%.3f ms (5 ticks/s)", state.tickCost) or "?")
   Dbg("XP rate window:", string.format("%d samples, %s active", #rateSamples, ns.FormatTime(state.active)))

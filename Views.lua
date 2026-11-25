@@ -1,7 +1,7 @@
 --[[
   Chronolog-Forever - Views
   -------------------------
-  The "Zones" and "Charts" tabs of the main window. Each builder returns a frame
+  The "Zones", "Reputation" and "Charts" tabs of the main window. Each builder returns a frame
   with a Refresh(agg) method; the main window calls it once a second while the
   tab is visible.
 ]]
@@ -132,12 +132,170 @@ function ns.BuildZonesView(parent)
 end
 
 --------------------------------------------------------------------------------
+-- Reputation: net reputation per faction, biggest first
+--------------------------------------------------------------------------------
+local REP_ROW_H = 20
+local REP_BAR_W = 100
+
+-- Per-level changes for one faction: { {lvl, value} } by level.
+local function FactionLevels(agg, name)
+  local list = {}
+  for _, lvl in ipairs(agg.levels) do
+    local v = agg.rows[lvl].factions and agg.rows[lvl].factions[name]
+    if v and v ~= 0 then list[#list + 1] = { lvl = lvl, value = v } end
+  end
+  return list
+end
+
+function ns.BuildReputationView(parent)
+  local view = CreateFrame("Frame", nil, parent)
+  view:SetAllPoints(parent)
+  local lastAgg
+
+  local function Hdr(text, x, width, justify)
+    local fs = view:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    fs:SetPoint("TOPLEFT", view, "TOPLEFT", x, 0)
+    if width then fs:SetWidth(width) end
+    fs:SetJustifyH(justify or "LEFT")
+    fs:SetText(text)
+    ns.TrackAccent(fs)
+    return fs
+  end
+  Hdr("Faction", 2)
+  local hdrStanding = Hdr("Standing", 196, 110)
+  Hdr("Gained", 410, 70, "RIGHT")
+
+  local scroll = CreateFrame("ScrollFrame", "ChronologRepScroll", view, "UIPanelScrollFrameTemplate")
+  scroll:SetPoint("TOPLEFT", view, "TOPLEFT", 0, -18)
+  scroll:SetPoint("BOTTOMRIGHT", view, "BOTTOMRIGHT", -14, 0)
+  local content = CreateFrame("Frame", nil, scroll)
+  content:SetSize(1, 1)
+  scroll:SetScrollChild(content)
+
+  local empty = view:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+  empty:SetPoint("CENTER", view, "CENTER", 0, 0)
+  empty:SetWidth(380)
+  empty:SetText("No reputation gained yet.\nReputation is recorded from v1.5 on.")
+
+  ns.WhenSkinned(function(S)
+    S.ScrollBar(scroll.ScrollBar or _G["ChronologRepScrollScrollBar"])
+  end)
+  ns.SkinFonts(view)
+
+  local rows = {}
+  local function AcquireRow(i)
+    local row = rows[i]
+    if row then return row end
+    row = CreateFrame("Frame", nil, content)
+    row:SetHeight(REP_ROW_H)
+    row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    row.name:SetPoint("LEFT", row, "LEFT", 2, 0)
+    row.name:SetWidth(190)
+    row.name:SetJustifyH("LEFT")
+    row.standing = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    row.standing:SetPoint("LEFT", row, "LEFT", 196, 0)
+    row.standing:SetWidth(110)
+    row.standing:SetJustifyH("LEFT")
+    row.bar = row:CreateTexture(nil, "ARTWORK")
+    row.bar:SetHeight(10)
+    row.bar:SetPoint("LEFT", row, "LEFT", 306, 0)
+    row.amount = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    row.amount:SetPoint("LEFT", row, "LEFT", 410, 0)
+    row.amount:SetWidth(70)
+    row.amount:SetJustifyH("RIGHT")
+    row.hl = row:CreateTexture(nil, "BACKGROUND")
+    row.hl:SetAllPoints(true)
+    ns.SetColor(row.hl, 1, 1, 1, 0.06)
+    row.hl:Hide()
+    row:EnableMouse(true)
+    row:SetScript("OnEnter", function(self)
+      self.hl:Show()
+      if not self.faction or not lastAgg then return end
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      GameTooltip:AddDoubleLine(self.faction, ns.FormatRep(self.value), 1, 1, 1, 1, 1, 1)
+      local st = self.info
+      if st then
+        local prog = (st.value and st.max and st.max > 0)
+          and string.format("  |cff888888%s / %s|r", ns.FormatNumber(st.value), ns.FormatNumber(st.max)) or ""
+        GameTooltip:AddDoubleLine("Standing now", st.label .. prog, 0.6, 0.6, 0.6, st.color[1], st.color[2], st.color[3])
+      end
+      local per = FactionLevels(lastAgg, self.faction)
+      if #per > 0 then
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine("By level", 0.6, 0.6, 0.6)
+        for i, p in ipairs(per) do
+          if i > 15 then
+            GameTooltip:AddLine(string.format("... and %d more levels", #per - 15), 0.5, 0.5, 0.5)
+            break
+          end
+          local c = p.value < 0 and ns.BEHIND_COLOR or { 0.85, 0.85, 0.85 }
+          GameTooltip:AddDoubleLine("Level " .. p.lvl, ns.FormatRep(p.value), 0.8, 0.8, 0.8, c[1], c[2], c[3])
+        end
+      end
+      GameTooltip:Show()
+    end)
+    row:SetScript("OnLeave", function(self)
+      self.hl:Hide()
+      GameTooltip:Hide()
+    end)
+    ns.SkinFonts(row)
+    rows[i] = row
+    return row
+  end
+
+  function view.Refresh(agg)
+    lastAgg = agg
+    local list = ns.SortedFactions(agg.totals.factions)
+    local top = list[1] and math.abs(list[1].value) or 0
+    local r, g, b = ns.GetAccent()
+    -- Standing is only known for the character that's logged in.
+    local mine = (agg.source == nil)
+    hdrStanding:SetText(mine and "Standing" or "")
+    empty:SetShown(#list == 0)
+
+    local width = scroll:GetWidth()
+    if width and width > 0 then content:SetWidth(width) end
+
+    for i, f in ipairs(list) do
+      local row = AcquireRow(i)
+      row:ClearAllPoints()
+      row:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -(i - 1) * REP_ROW_H)
+      row:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, -(i - 1) * REP_ROW_H)
+      row.name:SetText(f.name)
+      row.faction, row.value = f.name, f.value
+      local st = mine and ns.GetFactionStanding(f.name) or nil
+      row.info = st
+      if st then
+        row.standing:SetText(ns.Hex(st.color) .. st.label .. "|r")
+      else
+        row.standing:SetText(mine and "|cff666666-|r" or "")
+      end
+      if f.value < 0 then
+        local c = ns.BEHIND_COLOR
+        ns.SetColor(row.bar, c[1], c[2], c[3], 0.85)
+        row.amount:SetText(ns.Hex(c) .. ns.FormatRep(f.value) .. "|r")
+      else
+        ns.SetColor(row.bar, r, g, b, 0.85)
+        row.amount:SetText(ns.FormatRep(f.value))
+      end
+      row.bar:SetWidth(math.max(1, (top > 0 and math.abs(f.value) / top or 0) * REP_BAR_W))
+      row:Show()
+    end
+    for i = #list + 1, #rows do rows[i]:Hide() end
+    content:SetHeight(math.max(#list * REP_ROW_H, 1))
+  end
+
+  return view
+end
+
+--------------------------------------------------------------------------------
 -- Charts: one column per level, in several modes
 --   Time   - stacked by activity (+ time from before tracking)
 --   Where  - share of the level spent in the open world / town / dungeons / PvP
 --   Pace   - gain/loss per level against your reference, plus the running total
 --   XP/hr, Kills/hr, Gold/hr - per-level rates with your average
 --   Deaths - deaths per level
+--   Rep    - reputation gained per level, stacked by faction
 --------------------------------------------------------------------------------
 local MODES = {
   { id = "time",   label = "Time" },
@@ -147,7 +305,16 @@ local MODES = {
   { id = "kph",    label = "Kills/hr" },
   { id = "gph",    label = "Gold/hr" },
   { id = "deaths", label = "Deaths" },
+  { id = "rep",    label = "Rep" },
 }
+
+-- Faction colors for the Rep chart (the biggest gainers overall; the rest are
+-- grouped as "Other").
+local REP_PALETTE = {
+  { 0.30, 0.65, 1.00 }, { 1.00, 0.70, 0.20 }, { 0.40, 0.85, 0.45 },
+  { 0.85, 0.45, 0.95 }, { 1.00, 0.45, 0.45 }, { 0.35, 0.85, 0.85 },
+}
+local REP_OTHER = { 0.55, 0.55, 0.60 }
 
 local TIME_STEPS = { 60, 120, 300, 600, 900, 1200, 1800, 3600, 7200, 10800, 14400, 21600, 43200, 86400 }
 
@@ -315,6 +482,47 @@ local function BuildSpec(mode, agg, pace)
       spec.empty = "No finished levels to compare yet."
     end
 
+  elseif mode == "rep" then
+    spec.fmt = function(v) return ns.FormatNumber(v) end
+    local gains = {}
+    for name, v in pairs(agg.totals.factions or {}) do if v > 0 then gains[name] = v end end
+    local top = ns.SortedFactions(gains, #REP_PALETTE)
+    local colorOf = {}
+    for i, f in ipairs(top) do colorOf[f.name] = REP_PALETTE[i] end
+    local hasOther = false
+    local sum, n = 0, 0
+    for _, lvl in ipairs(agg.levels) do
+      local row = agg.rows[lvl]
+      local gained = ns.RepGained(row)
+      if gained > 0 then
+        local segs, other = {}, 0
+        for i, f in ipairs(top) do
+          local v = row.factions[f.name]
+          if v and v > 0 then segs[#segs + 1] = { v, REP_PALETTE[i] } end
+        end
+        for name, v in pairs(row.factions) do
+          if v > 0 and not colorOf[name] then other = other + v end
+        end
+        if other > 0 then segs[#segs + 1] = { other, REP_OTHER }; hasOther = true end
+        spec.points[#spec.points + 1] = { lvl = lvl, segs = segs, tip = function(tip)
+          tip:AddLine("Level " .. lvl .. (lvl == cur and " (current)" or ""), 1, 1, 1)
+          tip:AddDoubleLine("Reputation gained", ns.FormatRep(gained):sub(2), 0.8, 0.8, 0.8, 1, 1, 1)
+          tip:AddLine(" ")
+          for _, f in ipairs(ns.SortedFactions(row.factions, 12)) do
+            local c = f.value < 0 and ns.BEHIND_COLOR or colorOf[f.name] or REP_OTHER
+            tip:AddDoubleLine(f.name, ns.FormatRep(f.value), c[1], c[2], c[3], 1, 1, 1)
+          end
+        end }
+        if lvl ~= cur then sum, n = sum + gained, n + 1 end
+      end
+    end
+    if n > 1 then spec.avg = sum / n end
+    local labels, colors = {}, {}
+    for i, f in ipairs(top) do labels[i], colors[i] = f.name, REP_PALETTE[i] end
+    if hasOther then labels[#labels + 1], colors[#colors + 1] = "Other", REP_OTHER end
+    spec.caption = LegendText(labels, colors)
+    spec.empty = "No reputation gained yet - it's recorded from v1.5 on."
+
   else
     -- Rates and deaths: one accent column per level.
     local get, avg
@@ -370,7 +578,7 @@ function ns.BuildChartsView(parent)
   local prev
   for _, m in ipairs(MODES) do
     local b = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
-    b:SetSize(70, 20)
+    b:SetSize(62, 20)
     b:SetText(m.label)
     if prev then b:SetPoint("LEFT", prev, "RIGHT", 4, 0) else b:SetPoint("TOPLEFT", view, "TOPLEFT", 0, 0) end
     b:SetScript("OnClick", function()

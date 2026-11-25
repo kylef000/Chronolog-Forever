@@ -1,6 +1,6 @@
 ## Interface: 16001
 ## Title: Chronolog-Forever
-## Notes: Tracks per-level time (combat, travel, AFK, dead), where you spent it, kills, XP and gold, with pace splits, level ETA, charts, a widget and export.
+## Notes: Tracks per-level time (combat, travel, AFK, dead), where you spent it, kills, XP, gold and reputation, with pace splits, level ETA, charts, a widget and export.
 ## Author: Me and my pal Claude
 ## Version: 1.4
 ## IconTexture: Interface\Icons\INV_Misc_PocketWatch_01
@@ -18,6 +18,7 @@ Common.lua
 Pace.lua
 Recovery.lua
 Heat.lua
+Reputation.lua
 Views.lua
 UI.lua
 Widget.lua

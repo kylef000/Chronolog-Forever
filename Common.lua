@@ -203,6 +203,20 @@ function ns.AddBreakdown(tip, row, avg, pace)
   tip:AddDoubleLine("Gold gained / spent", ns.FormatGold(row.gold) .. " / " .. ns.FormatGold(row.spent),
     GRAY, GRAY, GRAY, 1, 1, 1)
 
+  local factions = ns.SortedFactions and ns.SortedFactions(row.factions) or {}
+  if #factions > 0 then
+    tip:AddLine(" ")
+    tip:AddLine("Reputation", 0.6, 0.6, 0.6)
+    for i, f in ipairs(factions) do
+      if i > 4 then
+        tip:AddLine(string.format("  ... and %d more (see the Reputation tab)", #factions - 4), 0.5, 0.5, 0.5)
+        break
+      end
+      local c = f.value < 0 and ns.BEHIND_COLOR or { 1, 1, 1 }
+      tip:AddDoubleLine(f.name, ns.FormatRep(f.value), GRAY, GRAY, GRAY, c[1], c[2], c[3])
+    end
+  end
+
   if pace then
     tip:AddLine(" ")
     tip:AddLine("Pace vs. " .. (pace.refName or "reference"), 0.6, 0.6, 0.6)

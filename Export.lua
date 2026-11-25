@@ -3,7 +3,8 @@
   --------------------------
   /chrono export opens a window with your data as CSV (the character/all view
   currently selected in the main window) for copying out: Ctrl+A, Ctrl+C.
-  Two tables: one row per level, then one row per (level, zone).
+  Tables: one row per level, then per (level, zone), (level, zone, subzone)
+  and (level, faction).
 ]]
 
 local addonName, ns = ...
@@ -43,6 +44,13 @@ function ns.BuildExport(agg)
       for _, sz in ipairs(ns.SortedZones((agg.rows[lvl].subzones or {})[z.name])) do
         out[#out + 1] = string.format("%d,%s,%s,%.0f", lvl, Csv(z.name), Csv(sz.name), sz.secs)
       end
+    end
+  end
+  out[#out + 1] = ""
+  out[#out + 1] = "level,faction,reputation"
+  for _, lvl in ipairs(agg.levels) do
+    for _, f in ipairs(ns.SortedFactions(agg.rows[lvl].factions)) do
+      out[#out + 1] = string.format("%d,%s,%d", lvl, Csv(f.name), f.value)
     end
   end
   return table.concat(out, "\n"), #out

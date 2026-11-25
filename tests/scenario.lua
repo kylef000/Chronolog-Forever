@@ -407,6 +407,74 @@ step("other characters' blank-realm duplicates are merged into one entry", funct
   a.chars["Dup-Other"], a.chars["Dup-Realm"] = nil, nil
 end)
 
+step("reputation: chat lines are recorded per level and faction", function()
+  local lvl = W.level
+  local r = row()
+  FIRE("CHAT_MSG_COMBAT_FACTION_CHANGE", "Reputation with Orgrimmar increased by 250.")
+  FIRE("CHAT_MSG_COMBAT_FACTION_CHANGE", "Reputation with Orgrimmar increased by 1,250. (+125.0 bonus)")
+  FIRE("CHAT_MSG_COMBAT_FACTION_CHANGE", "Reputation with Booty Bay decreased by 25.")
+  FIRE("CHAT_MSG_COMBAT_FACTION_CHANGE", "Reputation with Darkspear Trolls increased by 10.")
+  FIRE("CHAT_MSG_COMBAT_FACTION_CHANGE", "You are now Friendly with Orgrimmar.")
+  FIRE("CHAT_MSG_COMBAT_FACTION_CHANGE", SECRET)
+  eq(r.factions["Orgrimmar"], 1500, "gain incl. thousands separator and bonus suffix")
+  eq(r.factions["Booty Bay"], -25, "loss")
+  eq(r.factions["Darkspear Trolls"], 10)
+  eq(r.factions["You are now Friendly with Orgrimmar"], nil, "standing line ignored")
+  eq(ns.RepGained(r), 1510, "gains only")
+  local list = ns.SortedFactions(r.factions)
+  eq(list[1].name, "Orgrimmar"); eq(list[2].name, "Booty Bay", "sorted by size of change")
+  eq(ns.FormatRep(1500), "+1,500"); eq(ns.FormatRep(-25), "-25"); eq(ns.FormatRep(1234567), "+1,234,567")
+  -- next level is kept apart
+  W.level = lvl + 1
+  FIRE("PLAYER_LEVEL_UP", W.level)
+  FIRE("CHAT_MSG_COMBAT_FACTION_CHANGE", "Reputation with Orgrimmar increased by 75.")
+  eq(row().factions["Orgrimmar"], 75)
+  eq(ns.GetRow(ChronologForeverDB, lvl).factions["Orgrimmar"], 1500, "previous level unchanged")
+  W.level = lvl
+  ns.state.currentLevel = lvl
+  -- totals and the all-characters view merge factions
+  eq(ns.GetAggregate(nil).totals.factions["Orgrimmar"], 1575)
+  ChronologAccountDB.chars["Alt-Realm"].levels[5].factions = { Orgrimmar = 25, Undercity = 40 }
+  local all = ns.GetAggregate("ALL").totals.factions
+  eq(all["Orgrimmar"], 1600); eq(all["Undercity"], 40)
+  -- tooltip and export
+  local text = ns.BuildExport(ns.GetAggregate(nil))
+  assert(text:find("level,faction,reputation", 1, true), "rep table exported")
+  assert(text:find(lvl .. ",Orgrimmar,1500", 1, true), "rep row exported")
+  assert(text:find(lvl .. ",Booty Bay,-25", 1, true), "loss exported")
+end)
+
+step("reputation: localized / positional format strings", function()
+  local pat, order = ns.RepToPattern("Euer Ruf bei der Fraktion '%s' hat sich um %d verbessert.")
+  local caps = { ("Euer Ruf bei der Fraktion 'Orgrimmar' hat sich um 1.250 verbessert."):match(pat) }
+  eq(caps[1], "Orgrimmar"); eq(caps[2], "1.250"); eq(order[1], 1); eq(order[2], 2)
+  pat, order = ns.RepToPattern("%2$d Ruf bei %1$s (100%%).")
+  caps = { ("300 Ruf bei Ironforge (100%)."):match(pat) }
+  eq(caps[1], "300"); eq(caps[2], "Ironforge"); eq(order[1], 2); eq(order[2], 1)
+  local name, amount = ns.ParseRepMessage("Reputation with Thunder Bluff decreased by 5.")
+  eq(name, "Thunder Bluff"); eq(amount, -5)
+  eq(ns.ParseRepMessage("Reputation with Thunder Bluff increased by 0."), nil, "zero ignored")
+end)
+
+step("reputation: current standing from the faction list", function()
+  local st = ns.GetFactionStanding("Orgrimmar")
+  eq(st.label, "Friendly"); eq(st.value, 1200); eq(st.max, 6000)
+  eq(st.color[2], 0.6)
+  eq(ns.GetFactionStanding("Horde"), nil, "header without rep skipped")
+  eq(ns.GetFactionStanding("Hidden"), nil, "secret standing skipped")
+  -- cached until the reputation list changes
+  local calls = FACTION_LIST_CALLS
+  ns.GetFactionStanding("Orgrimmar")
+  eq(FACTION_LIST_CALLS, calls, "cached")
+  W.factionList[2][3] = 6
+  FIRE("UPDATE_FACTION")
+  local st2 = ns.GetFactionStanding("Orgrimmar")
+  eq(FACTION_LIST_CALLS, calls + 1, "rebuilt after UPDATE_FACTION")
+  eq(st2.label, "?", "unknown label falls back")
+  W.factionList[2][3] = 5
+  FIRE("UPDATE_FACTION")
+end)
+
 step("main window builds and refreshes all tabs / sources", function()
   SlashCmdList.CHRONOLOG("")
   assert(ChronologFrame and ChronologFrame.shown, "window shown")
@@ -415,7 +483,7 @@ step("main window builds and refreshes all tabs / sources", function()
     -- cycle tabs via their buttons
     UPDATE(1.1)
     for _, f in ipairs(ALL_FRAMES) do
-      if f.scripts.OnClick and f.text and (f.text == "Zones" or f.text == "Charts" or f.text == "Levels") then
+      if f.scripts.OnClick and f.text and (f.text == "Zones" or f.text == "Reputation" or f.text == "Charts" or f.text == "Levels") then
         f.scripts.OnClick(f)
       end
     end
@@ -426,7 +494,7 @@ step("main window builds and refreshes all tabs / sources", function()
   for _, f in ipairs(ALL_FRAMES) do
     if f.mode and f.scripts.OnClick then modes[#modes + 1] = f end
   end
-  eq(#modes, 7, "chart mode buttons")
+  eq(#modes, 8, "chart mode buttons")
   for _, src in ipairs({ false, "Fast-Realm", "ALL" }) do
     ns.viewSource = src or nil
     for _, f in ipairs(ALL_FRAMES) do
@@ -435,6 +503,21 @@ step("main window builds and refreshes all tabs / sources", function()
     for _, b in ipairs(modes) do b.scripts.OnClick(b) end
   end
   ns.viewSource = nil
+  -- the Rep chart: one column per level with reputation, tooltips render
+  for _, b in ipairs(modes) do
+    if b.mode == "rep" then b.scripts.OnClick(b) end
+  end
+  local repCols = 0
+  for _, f in ipairs(ALL_FRAMES) do
+    if f.segs and f.tip and f.shown then -- chart columns
+      f.scripts.OnEnter(f)
+      local text = table.concat(GameTooltip.lines or {}, "\n")
+      assert(text:find("Reputation gained", 1, true), "rep column tooltip: " .. text)
+      assert(text:find("Orgrimmar", 1, true), "faction listed")
+      repCols = repCols + 1
+    end
+  end
+  eq(repCols, 2, "a rep chart column for each level with reputation")
   for _, b in ipairs(modes) do
     if b.mode == "pace" then b.scripts.OnClick(b) end
   end
@@ -444,6 +527,20 @@ step("main window builds and refreshes all tabs / sources", function()
   for i = 1, #ns.GetSources() do cb.scripts.OnClick(cb) end
   eq(ns.viewSource, nil, "back to this character")
   ns.viewSource = nil
+  -- the Reputation tab lists this character's factions with standing
+  for _, f in ipairs(ALL_FRAMES) do
+    if f.scripts.OnClick and f.text == "Reputation" then f.scripts.OnClick(f) end
+  end
+  local found
+  for _, f in ipairs(ALL_FRAMES) do
+    if f.faction == "Orgrimmar" and f.shown then found = f end
+  end
+  assert(found, "Orgrimmar row shown")
+  eq(found.amount.text, "+1,575")
+  assert(found.standing.text:find("Friendly"), "standing shown")
+  for _, f in ipairs(ALL_FRAMES) do
+    if f.scripts.OnClick and f.text == "Levels" then f.scripts.OnClick(f) end
+  end
 end)
 
 step("row / tile / bar / chart column tooltips run", function()
@@ -462,6 +559,8 @@ step("widget: toggle, stats, scale, alpha", function()
   SlashCmdList.CHRONOLOG("widget stat kph")
   SlashCmdList.CHRONOLOG("widget stat xph")
   SlashCmdList.CHRONOLOG("widget stat deaths")
+  SlashCmdList.CHRONOLOG("widget stat rep")
+  assert(ChronologForeverDB.widget.stats.rep, "rep stat available")
   assert(ChronologForeverDB.widget.stats.eta and ChronologForeverDB.widget.stats.pace, "eta/pace default on")
   SlashCmdList.CHRONOLOG("widget stat nonsense")
   SlashCmdList.CHRONOLOG("widget scale 1.4")
