@@ -60,9 +60,9 @@ local MIN_TOTAL_FOR_RATIO = 60
 -- a fallback when the LFG completion reward event doesn't fire, e.g. manual runs).
 local DUNGEON_MIN_TIME = 240
 
--- Shapeshift form IDs that act as mounts: Travel, Aquatic, Ghost Wolf, and the
--- druid Flight / Swift Flight forms.
-local TRAVEL_FORMS = { [3] = true, [4] = true, [16] = true, [27] = true, [29] = true }
+-- Shapeshift form IDs that act as mounts: Travel, Aquatic and Ghost Wolf.
+-- (No flight forms: Forever has no flying.)
+local TRAVEL_FORMS = { [3] = true, [4] = true, [16] = true }
 
 local BUCKETS = { "combat", "travel", "afk", "other", "dead" }
 ns.BUCKETS = BUCKETS

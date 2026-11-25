@@ -12,7 +12,7 @@ total time:
 
 - **Combat**: time spent in combat.
 - **Travel**: time spent actually moving: running on foot, riding a mount, using
-  a travel form (Ghost Wolf, Travel/Aquatic/Flight Form), on a taxi / flight
+  a travel form (Ghost Wolf, Travel/Aquatic Form), on a taxi / flight
   path, or riding a **boat or zeppelin**. These are detected when your own speed
   is 0 but your map position keeps moving. Standing still (including sitting on
   a mount) is **not** travel; it counts as idle.
