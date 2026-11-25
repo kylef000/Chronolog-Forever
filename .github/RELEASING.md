@@ -2,9 +2,32 @@
 
 Pushing a tag like `v1.2.0` runs `.github/workflows/release.yml`, which:
 
-1. builds `Chronolog-Forever-v1.2.0.zip` (with `## Version` stamped from the tag),
-2. creates or updates the GitHub release with it,
-3. uploads the same zip to CurseForge, once that's configured (below).
+1. takes the release notes from the tag's section in `CHANGELOG.md`, and
+   **fails if there isn't one**,
+2. builds `Chronolog-Forever-v1.2.0.zip` (with `## Version` stamped from the tag),
+3. creates or updates the GitHub release with that zip and those notes,
+4. uploads the same zip and notes to CurseForge, once that's configured (below).
+
+## Writing the changelog entry
+
+Add a section at the top of `CHANGELOG.md` **before** tagging:
+
+```markdown
+## v1.5.0 - 2026-12-01
+
+### New
+- **Feature name**: one line on what it does for the player.
+
+### Changed
+- ...
+
+### Fixed
+- **What was wrong**: what the player saw, and that it's fixed.
+```
+
+Keep it short and written for players: what's new or different in game, not
+how it was built. Use `### New`, `### Changed`, `### Fixed` and, if needed,
+`### Notes`. Leave out sections that would be empty.
 
 Tags containing `alpha` or `beta` (e.g. `v1.3.0-beta1`) upload to CurseForge
 as alpha/beta files.
@@ -37,9 +60,12 @@ release is made.
 
 ## Before tagging
 
-```bash
-python tests/harness.py
-python tests/harness.py eui
-```
+1. Add the `CHANGELOG.md` section for the new version (see above) and commit it.
+2. Run the tests:
 
-Both should print `ALL PASSED`.
+   ```bash
+   python tests/harness.py
+   python tests/harness.py eui
+   ```
+
+   Both should print `ALL PASSED`.

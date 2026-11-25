@@ -16,6 +16,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Release notes come from this tag's section in CHANGELOG.md
+      # ("## v1.4.0 - 2026-11-25"). No section = no release.
+      - name: Extract release notes from CHANGELOG.md
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          awk -v tag="${TAG}" '/^## /{ if (p) exit; if ($2 == tag) { p = 1; next } } p' CHANGELOG.md > release-notes.md
+          if ! grep -q '[^[:space:]]' release-notes.md; then
+            echo "::error::CHANGELOG.md has no '## ${TAG} - <date>' section. Add release notes before tagging."
+            exit 1
+          fi
+          echo "Release notes:"
+          cat release-notes.md
+
       - name: Build addon package
         run: |
           set -euo pipefail
@@ -24,7 +38,7 @@ jobs:
           # Stage the addon inside a "Chronolog-Forever" folder so the zip extracts
           # straight into the user's Interface/AddOns directory.
           mkdir -p "build/Chronolog-Forever"
-          cp Core.lua Skin.lua Common.lua Pace.lua Recovery.lua Heat.lua Views.lua UI.lua Widget.lua Export.lua Minimap.lua HeatMap.lua Settings.lua Chronolog-Forever.toc README.md LICENSE "build/Chronolog-Forever/"
+          cp Core.lua Skin.lua Common.lua Pace.lua Recovery.lua Heat.lua Views.lua UI.lua Widget.lua Export.lua Minimap.lua HeatMap.lua Settings.lua Chronolog-Forever.toc README.md CHANGELOG.md LICENSE "build/Chronolog-Forever/"
 
           # Stamp the packaged .toc version to match the tag (without the
           # leading "v"), e.g. tag v1.2.0 -> "## Version: 1.2.0". The repo file
@@ -49,13 +63,14 @@ jobs:
           if gh release view "${TAG}" >/dev/null 2>&1; then
             # Release already exists (e.g. created from the GitHub website).
             # Attach/replace the zip without erroring.
-            echo "Release ${TAG} exists - uploading asset."
+            echo "Release ${TAG} exists - uploading asset and notes."
             gh release upload "${TAG}" "${ASSET}" --clobber
+            gh release edit "${TAG}" --notes-file release-notes.md
           else
             echo "Release ${TAG} does not exist - creating it."
             gh release create "${TAG}" "${ASSET}" \
               --title "Chronolog-Forever ${TAG}" \
-              --generate-notes
+              --notes-file release-notes.md
           fi
 
       # Uploads the same zip to CurseForge. Skipped until it's configured
@@ -85,8 +100,7 @@ jobs:
             *)       RELEASE_TYPE=release ;;
           esac
 
-          CHANGELOG="$(gh release view "${TAG}" --json body -q .body || true)"
-          [ -n "${CHANGELOG}" ] || CHANGELOG="Chronolog-Forever ${TAG}"
+          CHANGELOG="$(cat release-notes.md)"
 
           METADATA="$(jq -n \
             --arg dn "Chronolog-Forever ${TAG}" \
