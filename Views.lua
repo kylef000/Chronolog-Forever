@@ -392,12 +392,19 @@ function ns.BuildChartsView(parent)
   bg:SetAllPoints(true)
   ns.SetColor(bg, 0, 0, 0, 0.25)
 
+  -- Annotations (average line, headline, running-total line) live on their
+  -- own frame above the columns: the columns are child frames of `area`, so
+  -- anything drawn on `area` itself would end up behind the bars.
+  local fg = CreateFrame("Frame", nil, area)
+  fg:SetAllPoints(area)
+  fg:SetFrameLevel((area:GetFrameLevel() or 1) + 20)
+
   local empty = view:CreateFontString(nil, "OVERLAY", "GameFontDisable")
   empty:SetPoint("CENTER", area, "CENTER", 0, 0)
   empty:SetWidth(380)
 
   -- One-line summary drawn inside the plot (pace: running total).
-  local headline = area:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+  local headline = fg:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
   headline:SetPoint("TOPLEFT", area, "TOPLEFT", 6, -6)
   headline:SetJustifyH("LEFT")
 
@@ -477,26 +484,31 @@ function ns.BuildChartsView(parent)
   local function Dash(i)
     local d = dashes[i]
     if d then return d end
-    d = area:CreateTexture(nil, "OVERLAY")
+    d = fg:CreateTexture(nil, "ARTWORK")
     d:SetSize(6, 1)
     dashes[i] = d
     return d
   end
-  local avgLabel = area:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  local avgLabel = fg:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   avgLabel:SetJustifyH("RIGHT")
+  -- Dark backing so the label stays readable on top of a bar.
+  local avgBg = fg:CreateTexture(nil, "BORDER")
+  avgBg:SetPoint("TOPLEFT", avgLabel, "TOPLEFT", -3, 2)
+  avgBg:SetPoint("BOTTOMRIGHT", avgLabel, "BOTTOMRIGHT", 3, -2)
+  ns.SetColor(avgBg, 0, 0, 0, 0.7)
 
   local function Line(i)
     local l = lines[i]
     if l then return l end
-    if not area.CreateLine then return nil end
-    l = area:CreateLine(nil, "OVERLAY")
+    if not fg.CreateLine then return nil end
+    l = fg:CreateLine(nil, "OVERLAY")
     lines[i] = l
     return l
   end
   local function Dot(i)
     local d = dots[i]
     if d then return d end
-    d = area:CreateTexture(nil, "OVERLAY")
+    d = fg:CreateTexture(nil, "OVERLAY")
     d:SetSize(5, 5)
     dots[i] = d
     return d
@@ -533,7 +545,7 @@ function ns.BuildChartsView(parent)
     empty:SetText(spec.empty or "")
     if n == 0 then
       HideFrom(grid, 0); HideFrom(cols, 0); HideFrom(dashes, 0); HideFrom(lines, 0); HideFrom(dots, 0)
-      avgLabel:Hide()
+      avgLabel:Hide(); avgBg:Hide()
       return
     end
 
@@ -692,16 +704,16 @@ function ns.BuildChartsView(parent)
         local d = Dash(nd)
         d:ClearAllPoints()
         d:SetPoint("BOTTOMLEFT", area, "BOTTOMLEFT", x, y)
-        ns.SetColor(d, 1, 1, 1, 0.55)
+        ns.SetColor(d, 1, 1, 1, 0.8)
         d:Show()
         x = x + 10
       end
       avgLabel:ClearAllPoints()
       avgLabel:SetPoint("BOTTOMRIGHT", area, "BOTTOMLEFT", W - 2, y + 2)
       avgLabel:SetText("avg " .. spec.fmt(spec.avg))
-      avgLabel:Show()
+      avgLabel:Show(); avgBg:Show()
     else
-      avgLabel:Hide()
+      avgLabel:Hide(); avgBg:Hide()
     end
     HideFrom(dashes, nd)
 
