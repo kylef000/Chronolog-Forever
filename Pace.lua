@@ -41,7 +41,7 @@ local function CharInfo(key)
   local c = a and a.chars and a.chars[key]
   if not c or type(c.levels) ~= "table" then return nil end
   return {
-    key = key, name = c.name or key,
+    key = key, name = ns.DisplayName(c) or key,
     levels = c.levels, startLevel = c.startLevel, level = c.level or InferLevel(c.levels),
   }
 end

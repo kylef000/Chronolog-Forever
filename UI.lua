@@ -276,10 +276,12 @@ local function SourceText(source)
   local name, class, level
   if source and a and a.chars and a.chars[source] then
     local c = a.chars[source]
-    name, class, level = c.name or source, c.class, c.level
+    name, class, level = ns.DisplayName(c) or source, c.class, c.level
   else
     local _, cls = UnitClass("player")
-    name, class, level = UnitName("player") or "?", cls, ns.state.currentLevel
+    local entry = a and a.chars and a.chars[ns.CharKey()]
+    name = ns.FullName() or ns.DisplayName(entry) or UnitName("player") or "?"
+    class, level = cls, ns.state.currentLevel
   end
   return ClassHex(class) .. name .. "|r" .. (level and ("  |cff888888Lv " .. level .. "|r") or "")
 end

@@ -540,6 +540,31 @@ step("main window builds and refreshes all tabs / sources", function()
   UPDATE(1.1)
   assert(cb.value.text:find("|cff0070deTester", 1, true) and cb.value.text:find("Lv " .. ns.state.currentLevel, 1, true),
     "selector value: " .. tostring(cb.value.text))
+  -- Forever surnames: the full name is shown and remembered
+  W.pvpName = "Tester Rolemodel"
+  FIRE("UNIT_NAME_UPDATE", "player")
+  eq(ChronologAccountDB.chars["Tester-Realm"].fullName, "Tester Rolemodel", "full name stored")
+  UPDATE(1.1)
+  assert(cb.value.text:find("Tester Rolemodel", 1, true), "selector shows full name: " .. cb.value.text)
+  -- not available (e.g. at logout): keep the last known full name
+  W.pvpName = ""
+  FIRE("PLAYER_LOGOUT")
+  eq(ChronologAccountDB.chars["Tester-Realm"].fullName, "Tester Rolemodel", "kept when unavailable")
+  -- another unit's name update is ignored; a name without a surname is used as is
+  W.pvpName = "Someone Else"
+  FIRE("UNIT_NAME_UPDATE", "target")
+  eq(ChronologAccountDB.chars["Tester-Realm"].fullName, "Tester Rolemodel")
+  W.pvpName = nil
+  FIRE("UNIT_NAME_UPDATE", "player")
+  eq(ChronologAccountDB.chars["Tester-Realm"].fullName, "Tester", "plain name")
+  -- other characters' full names label the menu and pace references
+  ChronologAccountDB.chars["Fast-Realm"].fullName = "Fast Runner"
+  local found
+  for _, src in ipairs(ns.GetSources()) do if src.label == "Fast Runner" then found = true end end
+  assert(found, "sources use the full name")
+  found = false
+  for _, r in ipairs(ns.GetPaceRefs()) do if r.label == "Fast Runner" then found = true end end
+  assert(found, "pace references use the full name")
   -- with the menu API: a radio per source, "All characters" after a divider,
   -- and picking one switches the view
   local items, dividers

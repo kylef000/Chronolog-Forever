@@ -30,6 +30,9 @@ workflow refuses to publish a tag without one.
 - **Cleaner window header**: the title shows the addon version, and the
   character button is now a "Viewing" selector that opens a menu of your
   characters (name in class color, with level).
+- **Full character names**: characters are shown with their Forever surname
+  (e.g. "Positive Rolemodel") in the character menu, pace comparisons and
+  settings. Other characters pick it up the next time you log them in.
 - Charts label every level, or every other level, when there's room (instead
   of every 5th once you're past 20 levels).
 

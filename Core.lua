@@ -163,6 +163,24 @@ function ns.CharKey()
   return (UnitName("player") or "?") .. "-" .. RealmName()
 end
 
+-- The name as the game shows it. Characters on Forever have a surname
+-- ("Positive Rolemodel"); addons only see it as part of the name-with-title
+-- (UnitPVPName). nil when the client hasn't got it (e.g. during logout).
+local function FullName()
+  local base = Clean(UnitName("player"))
+  local shown = UnitPVPName and Clean(UnitPVPName("player"))
+  if type(base) ~= "string" or type(shown) ~= "string" or shown == "" then return nil end
+  if shown ~= base and shown:find(base, 1, true) then return shown end
+  return base
+end
+ns.FullName = FullName
+
+-- Display name for an account entry: the full name if we've seen it.
+function ns.DisplayName(entry)
+  if type(entry) ~= "table" then return nil end
+  return entry.fullName or entry.name
+end
+
 -- Is this account entry (another key) actually the current character?
 function ns.IsCurrentCharEntry(entry)
   if type(entry) ~= "table" then return false end
@@ -272,8 +290,10 @@ local function SyncAccount()
     if k ~= key and ns.IsCurrentCharEntry(c) then a.chars[k] = nil end
   end
   DedupeAccount(a)
+  local prev = a.chars[key]
   a.chars[key] = {
     name = UnitName("player"),
+    fullName = FullName() or (prev and prev.fullName),
     realm = RealmName(),
     guid = UnitGUID("player"),
     class = db.class,
@@ -792,6 +812,7 @@ ev:RegisterEvent("PLAYER_TARGET_CHANGED")
 ev:RegisterEvent("LFG_COMPLETION_REWARD")
 ev:RegisterEvent("CHAT_MSG_COMBAT_XP_GAIN")
 ev:RegisterEvent("TIME_PLAYED_MSG")
+ev:RegisterEvent("UNIT_NAME_UPDATE")
 
 -- Health/flag changes of the current target (cheap: only the "target" unit).
 local targetEv = CreateFrame("Frame")
@@ -830,6 +851,17 @@ ev:SetScript("OnEvent", function(_, event, ...)
 
   elseif event == "TIME_PLAYED_MSG" then
     if state.ready then OnTimePlayed(...) end
+
+  elseif event == "UNIT_NAME_UPDATE" then
+    -- The name/title (Forever surname) can arrive or change after login.
+    if state.ready and (...) == "player" then
+      local full = FullName()
+      local entry = ChronologAccountDB and ChronologAccountDB.chars and ChronologAccountDB.chars[ns.CharKey()]
+      if full and entry and entry.fullName ~= full then
+        entry.fullName = full
+        if ns.Refresh then ns.Refresh() end
+      end
+    end
 
   elseif event == "PLAYER_LOGOUT" then
     SyncAccount()
@@ -1034,7 +1066,7 @@ function ns.GetSources()
     for k in pairs(a.chars) do if k ~= me then keys[#keys + 1] = k end end
     table.sort(keys)
     for _, k in ipairs(keys) do
-      list[#list + 1] = { id = k, label = a.chars[k].name or k }
+      list[#list + 1] = { id = k, label = ns.DisplayName(a.chars[k]) or k }
     end
     if #keys > 0 then list[#list + 1] = { id = "ALL", label = "All characters" } end
   end
@@ -1054,6 +1086,7 @@ local function PrintDebug()
   print("|cff66ccffChronolog-Forever|r debug (build " .. tostring((select(4, GetBuildInfo()))) .. "):")
   Dbg("tick bucket:", state.bucket)
   Dbg("level:", state.currentLevel)
+  Dbg("name / shown as:", tostring(UnitName("player")) .. " / " .. tostring(UnitPVPName and UnitPVPName("player")))
   Dbg("shapeshift form id:", GetShapeshiftFormID and GetShapeshiftFormID())
   Dbg("speed:", GetUnitSpeed("player"))
   Dbg("mounted:", IsMounted())
