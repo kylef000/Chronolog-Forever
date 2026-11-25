@@ -20,6 +20,9 @@ workflow refuses to publish a tag without one.
   - Level tooltips show that level's top factions.
   - The widget can show reputation gained this level, and `/chrono export`
     includes a per-level, per-faction table.
+- **Remove a character**: delete an old character's data from the **Viewing**
+  menu (Remove a character) or with `/chrono remove <name>`. You're asked to
+  confirm first.
 - **Resizable window**: drag the bottom-right corner of the main window to make
   it wider or taller (right-click the corner to reset). Charts get wider bars,
   so a full 1-60 run stays readable; the Levels, Zones and Reputation tables

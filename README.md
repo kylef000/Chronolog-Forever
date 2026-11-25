@@ -146,11 +146,12 @@ seconds of tracked time qualify for these and for per-hour rates.
 | `/chrono widget` | Toggle the small current-level widget (drag to move, right-click to hide). |
 | `/chrono widget scale <0.5-2>` | Widget size. |
 | `/chrono widget alpha <0.2-1>` | Widget opacity. |
-| `/chrono widget stat <name>` | Toggle a widget stat: `kills quests dungeons grouped deaths kph xph gph crafting dead eta pace`. |
+| `/chrono widget stat <name>` | Toggle a widget stat: `kills quests dungeons grouped deaths kph xph gph crafting dead rep eta pace`. |
 | `/chrono pace` | Change the pace reference (best splits, or one of your characters). |
 | `/chrono heatmap` | Show/hide the heatmap on the world map. |
 | `/chrono minimap` | Show/hide the minimap button (left-click: window, right-click: widget). |
-| `/chrono export` | Copy your data as CSV (per level, and per level and zone). |
+| `/chrono export` | Copy your data as CSV (per level, zone, subzone and faction). |
+| `/chrono remove <name>` | Delete another character's data (asks to confirm). Also in the Viewing menu. |
 | `/chrono options` | Open the settings. |
 | `/chrono debug` | Print tracking diagnostics (form ID, speed, mounted state, last XP line, ...). |
 | `/chrono reset` | Asks for confirmation; `/chrono reset yes` wipes this character's data (settings are kept). |

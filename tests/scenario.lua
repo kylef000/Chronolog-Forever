@@ -567,22 +567,36 @@ step("main window builds and refreshes all tabs / sources", function()
   assert(found, "pace references use the full name")
   -- with the menu API: a radio per source, "All characters" after a divider,
   -- and picking one switches the view
-  local items, dividers
+  local items, dividers, removeMenu
   MenuUtil = { CreateContextMenu = function(owner, gen)
-    items, dividers = {}, 0
+    items, dividers, removeMenu = {}, 0, nil
     local root = {
       CreateTitle = function() end,
       CreateDivider = function() dividers = dividers + 1 end,
       CreateRadio = function(_, text, isSel, setSel, data)
         items[#items + 1] = { text = text, isSel = isSel, setSel = setSel, data = data }
       end,
+      CreateButton = function(_, text)
+        removeMenu = { title = text, entries = {} }
+        return { CreateButton = function(_, t, fn) table.insert(removeMenu.entries, { text = t, fn = fn }) end }
+      end,
     }
     gen(owner, root)
+    MENU_FRAME = { ClearAllPoints = function() end,
+      SetPoint = function(self, p, rel, rp) self.pt = { p, rel, rp } end }
+    return MENU_FRAME
   end }
   cb.scripts.OnClick(cb)
+  eq(MENU_FRAME.pt[1], "TOPRIGHT"); eq(MENU_FRAME.pt[2], cb, "menu drops down from the selector")
+  eq(MENU_FRAME.pt[3], "BOTTOMRIGHT")
   local sources = ns.GetSources()
   eq(#items, #sources, "one radio per source")
-  eq(dividers, 1, "divider before All characters")
+  eq(dividers, 2, "dividers before All characters and the remove submenu")
+  assert(removeMenu and removeMenu.title:find("Remove a character", 1, true), "remove submenu")
+  eq(#removeMenu.entries, #sources - 2, "every other character (not you, not All)")
+  for _, e in ipairs(removeMenu.entries) do
+    assert(not e.text:find("Tester", 1, true), "can't remove yourself")
+  end
   assert(items[1].isSel(items[1].data), "this character selected")
   assert(items[1].text:find("(you)", 1, true), "you marked")
   assert(items[#items].text:find("All characters", 1, true), "all last")
@@ -728,6 +742,38 @@ step("Rep chart colors: top 6 by default, or the factions you choose", function(
     if f.mode == "pace" then f.scripts.OnClick(f) end
   end
   Click("Levels")
+end)
+
+step("remove another character (menu / slash command, with confirmation)", function()
+  local a = ChronologAccountDB
+  a.chars["Gone-Realm"] = { name = "Gone", fullName = "Gone Away", class = "MAGE", startLevel = 1, level = 12,
+    levels = { [5] = { total = 300, kills = 9 } }, heat = {} }
+  ChronologForeverDB.paceRef = "Gone-Realm"
+  ns.viewSource = "Gone-Realm"
+  -- the slash command needs a name, then asks to confirm
+  POPUP = nil
+  SlashCmdList.CHRONOLOG("remove")
+  eq(POPUP, nil, "no popup without a name")
+  assert(PRINTED[#PRINTED]:find("Gone Away", 1, true), "lists the characters: " .. PRINTED[#PRINTED])
+  SlashCmdList.CHRONOLOG("remove gone away")
+  eq(POPUP.name, "CHRONOLOG_FOREVER_REMOVE_CHAR"); eq(POPUP.arg, "Gone Away"); eq(POPUP.data, "Gone-Realm")
+  assert(a.chars["Gone-Realm"], "nothing deleted before confirming")
+  -- confirming deletes it and clears anything pointing at it
+  StaticPopupDialogs.CHRONOLOG_FOREVER_REMOVE_CHAR.OnAccept(nil, POPUP.data)
+  eq(a.chars["Gone-Realm"], nil, "removed")
+  eq(ns.viewSource, nil, "view falls back to this character")
+  eq(ChronologForeverDB.paceRef, nil, "pace falls back to best splits")
+  for _, src in ipairs(ns.GetSources()) do assert(src.id ~= "Gone-Realm", "gone from the character list") end
+  -- the plain name also works; yourself can never be removed
+  a.chars["Gone-Realm"] = { name = "Gone", levels = {} }
+  SlashCmdList.CHRONOLOG("remove gone")
+  eq(POPUP.data, "Gone-Realm")
+  StaticPopupDialogs.CHRONOLOG_FOREVER_REMOVE_CHAR.OnAccept(nil, POPUP.data)
+  eq(ns.RemoveCharacter("Tester-Realm"), false, "can't remove the logged-in character")
+  assert(a.chars["Tester-Realm"], "still there")
+  POPUP = nil
+  SlashCmdList.CHRONOLOG("remove tester")
+  eq(POPUP, nil, "not offered for yourself")
 end)
 
 step("row / tile / bar / chart column tooltips run", function()

@@ -163,7 +163,10 @@ local function RefreshTiles(agg, pace)
   local function rate(v) return hours > 0 and v / hours or 0 end
   local r, g, b = ns.GetAccent()
   for _, tile in pairs(tiles) do ns.SetColor(tile.edge, r, g, b, 0.9) end
-  if frame.charBtn then ns.SetColor(frame.charBtn.edge, r, g, b, 0.9) end
+  if frame.charBtn then
+    ns.SetColor(frame.charBtn.edge, r, g, b, 0.9)
+    for _, l in ipairs(frame.charBtn.chevron) do l:SetColorTexture(r, g, b, 1) end
+  end
 
   local played = t.total + t.untracked + t.lost
   SetTile("played", FormatTime(played),
@@ -618,11 +621,19 @@ local function BuildWindow()
   charBtn.value:SetPoint("RIGHT", charBtn, "RIGHT", -22, 0)
   charBtn.value:SetJustifyH("LEFT")
   charBtn.value:SetWordWrap(false)
-  charBtn.arrow = charBtn:CreateTexture(nil, "OVERLAY")
-  charBtn.arrow:SetSize(16, 16)
-  charBtn.arrow:SetPoint("RIGHT", charBtn, "RIGHT", -4, 0)
-  charBtn.arrow:SetTexture("Interface\\Buttons\\Arrow-Down-Up")
-  charBtn.arrow:SetTexCoord(0, 1, 0, 0.5)
+  -- Dropdown chevron, drawn inside the tile on the name's line (in the
+  -- accent color, set in RefreshTiles).
+  charBtn.chevron = {}
+  if charBtn.CreateLine then
+    local pts = { { -17, 13, -12, 8 }, { -12, 8, -7, 13 } }
+    for i, p in ipairs(pts) do
+      local l = charBtn:CreateLine(nil, "OVERLAY")
+      l:SetThickness(2)
+      l:SetStartPoint("BOTTOMRIGHT", charBtn, p[1], p[2])
+      l:SetEndPoint("BOTTOMRIGHT", charBtn, p[3], p[4])
+      charBtn.chevron[i] = l
+    end
+  end
 
   local function SelectSource(id)
     ns.viewSource = id
@@ -631,7 +642,7 @@ local function BuildWindow()
   charBtn:SetScript("OnClick", function(self)
     local sources = ns.GetSources()
     if MenuUtil and MenuUtil.CreateContextMenu then
-      MenuUtil.CreateContextMenu(self, function(_, root)
+      local menu = MenuUtil.CreateContextMenu(self, function(_, root)
         root:CreateTitle("Show data for")
         for i, src in ipairs(sources) do
           if src.id == "ALL" then root:CreateDivider() end
@@ -640,7 +651,22 @@ local function BuildWindow()
             function(idx) return sources[idx].id == ns.viewSource end,
             function(idx) SelectSource(sources[idx].id) end, i)
         end
+        local removable = ns.RemovableCharacters()
+        if #removable > 0 then
+          root:CreateDivider()
+          local sub = root:CreateButton("|cffff6060Remove a character|r")
+          for _, c in ipairs(removable) do
+            sub:CreateButton(SourceText(c.key), function() ns.ConfirmRemoveCharacter(c.key) end)
+          end
+        end
       end)
+      -- Drop down from the selector, not wherever the cursor is.
+      if menu and menu.ClearAllPoints then
+        pcall(function()
+          menu:ClearAllPoints()
+          menu:SetPoint("TOPRIGHT", self, "BOTTOMRIGHT", 0, -2)
+        end)
+      end
     else
       local idx = 1
       for i, src in ipairs(sources) do if src.id == ns.viewSource then idx = i end end

@@ -120,7 +120,7 @@ W.stats = { kills = 100, quests = 50, deaths = 3 }
 local STAT_MAP = { [1197] = "kills", [98] = "quests", [60] = "deaths" }
 function GetStatistic(id) local k = STAT_MAP[id]; return k and tostring(W.stats[k]) or "--" end
 StaticPopupDialogs = {}
-function StaticPopup_Show(name, arg) POPUP = { name = name, arg = arg } end
+function StaticPopup_Show(name, arg, arg2, data) POPUP = { name = name, arg = arg, data = data } end
 function ReloadUI() RELOADED = true end
 function InCombatLockdown() return W.combat end
 

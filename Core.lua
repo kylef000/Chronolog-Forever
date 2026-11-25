@@ -323,6 +323,68 @@ function ns.ResetData()
 end
 
 --------------------------------------------------------------------------------
+-- Removing another character
+--   Deletes the character's account-wide copy: its levels, zones, reputation
+--   and heatmap data, from every view, pace comparison and the heatmap. The
+--   character you're logged in on can't be removed (use /chrono reset). If a
+--   removed character is logged in again, it starts showing up again with
+--   whatever its own saved data still holds.
+--------------------------------------------------------------------------------
+function ns.RemoveCharacter(key)
+  local a = ChronologAccountDB
+  local entry = a and a.chars and a.chars[key]
+  if not entry or key == ns.CharKey() or ns.IsCurrentCharEntry(entry) then return false end
+  a.chars[key] = nil
+  if ns.viewSource == key then ns.viewSource = nil end
+  local db = ChronologForeverDB
+  if db and db.paceRef == key then db.paceRef = nil end
+  if ns.Refresh then ns.Refresh() end
+  if ns.RefreshWidget then ns.RefreshWidget() end
+  if ns.RedrawHeatmap then pcall(ns.RedrawHeatmap) end
+  return true
+end
+
+-- Other characters that can be removed: { {key, label} }, sorted by name.
+function ns.RemovableCharacters()
+  local list = {}
+  local a = ChronologAccountDB
+  for key, c in pairs(a and a.chars or {}) do
+    if key ~= ns.CharKey() and not ns.IsCurrentCharEntry(c) then
+      list[#list + 1] = { key = key, label = ns.DisplayName(c) or key }
+    end
+  end
+  table.sort(list, function(x, y) return x.label < y.label end)
+  return list
+end
+
+if StaticPopupDialogs then
+  StaticPopupDialogs["CHRONOLOG_FOREVER_REMOVE_CHAR"] = {
+    text = "Remove %s from Chronolog?\n\nAll of this character's tracked data (levels, zones, reputation, heatmap) is deleted. This can't be undone.",
+    button1 = YES or "Yes",
+    button2 = NO or "No",
+    OnAccept = function(self, data)
+      local key = data or (self and self.data)
+      if key and ns.RemoveCharacter(key) then
+        print("|cff66ccffChronolog-Forever|r: removed " .. tostring(key) .. ".")
+      end
+    end,
+    showAlert = true,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+  }
+end
+
+-- Ask before removing a character (key from RemovableCharacters).
+function ns.ConfirmRemoveCharacter(key)
+  local a = ChronologAccountDB
+  local entry = a and a.chars and a.chars[key]
+  if not entry or not StaticPopup_Show then return end
+  StaticPopup_Show("CHRONOLOG_FOREVER_REMOVE_CHAR", ns.DisplayName(entry) or key, nil, key)
+end
+
+--------------------------------------------------------------------------------
 -- Formatting (shared with the UI)
 --------------------------------------------------------------------------------
 function ns.FormatTime(sec)
@@ -1154,6 +1216,7 @@ SlashCmdList["CHRONOLOG"] = function(msg)
     print("  |cffffff00/chrono heatmap|r - show/hide the heatmap on the world map")
     print("  |cffffff00/chrono minimap|r - show/hide the minimap button")
     print("  |cffffff00/chrono export|r - copy your data as CSV")
+    print("  |cffffff00/chrono remove <name>|r - delete another character's data (asks to confirm)")
     print("  |cffffff00/chrono options|r - open the settings")
     print("  |cffffff00/chrono debug|r - print tracking diagnostics")
     print("  |cffffff00/chrono reset|r - erase all tracked data (asks to confirm)")
@@ -1173,6 +1236,26 @@ SlashCmdList["CHRONOLOG"] = function(msg)
     if ns.CyclePaceRefCommand then ns.CyclePaceRefCommand() end
   elseif cmd == "minimap" then
     if ns.ToggleMinimapButton then ns.ToggleMinimapButton() end
+  elseif cmd == "remove" or cmd == "delete" then
+    local list = ns.RemovableCharacters()
+    if #list == 0 then
+      print(TAG .. ": no other characters to remove.")
+      return
+    end
+    local match
+    if rest ~= "" then
+      for _, c in ipairs(list) do
+        local a = ChronologAccountDB.chars[c.key]
+        if rest == c.label:lower() or rest == c.key:lower() or rest == (a.name or ""):lower() then match = c end
+      end
+    end
+    if match then
+      ns.ConfirmRemoveCharacter(match.key)
+    else
+      local names = {}
+      for _, c in ipairs(list) do names[#names + 1] = c.label end
+      print(TAG .. ": /chrono remove <name> - one of: " .. table.concat(names, ", "))
+    end
   elseif cmd == "export" then
     if ns.ShowExport then ns.ShowExport() end
   elseif cmd == "options" or cmd == "settings" then
