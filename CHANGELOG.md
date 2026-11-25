@@ -4,7 +4,7 @@ Each release's notes on GitHub (and CurseForge) are taken from its section
 below. Add a `## vX.Y.Z - YYYY-MM-DD` section before tagging; the release
 workflow refuses to publish a tag without one.
 
-## Unreleased
+## v1.5.0 - 2026-11-25
 
 ### New
 

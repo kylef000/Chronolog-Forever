@@ -25,6 +25,9 @@ Add a section at the top of `CHANGELOG.md` **before** tagging:
 - **What was wrong**: what the player saw, and that it's fixed.
 ```
 
+Between releases, collect entries under `## Unreleased`; when tagging, rename
+that heading to `## vX.Y.Z - YYYY-MM-DD` and bump `## Version` in the `.toc`.
+
 Keep it short and written for players: what's new or different in game, not
 how it was built. Use `### New`, `### Changed`, `### Fixed` and, if needed,
 `### Notes`. Leave out sections that would be empty.
