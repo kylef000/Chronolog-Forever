@@ -25,8 +25,8 @@ workflow refuses to publish a tag without one.
 
 ## v1.4.0 - 2026-11-25
 
-The first release for **WoW Forever**. It replaces the old Ascension
-Chronolog, and data saved by Chronolog is migrated automatically.
+The first release for **WoW Forever**. Data saved by the earlier Chronolog
+is migrated automatically.
 
 ### New
 
