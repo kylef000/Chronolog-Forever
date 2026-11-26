@@ -4,6 +4,12 @@ Each release's notes on GitHub (and CurseForge) are taken from its section
 below. Add a `## vX.Y.Z - YYYY-MM-DD` section before tagging; the release
 workflow refuses to publish a tag without one.
 
+## v1.6.1 - 2026-11-25
+
+### Notes
+
+- First release on CurseForge. No changes in game since v1.6.0.
+
 ## v1.6.0 - 2026-11-25
 
 ### New

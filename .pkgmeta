@@ -1,0 +1,9 @@
+# CurseForge automatic packaging (webhook on tag push). See .github/RELEASING.md.
+# Dot-files (.github, .wowluarc.json, .editorconfig, this file) are left out
+# automatically; list any other non-addon paths under "ignore".
+package-as: Chronolog-Forever
+
+manual-changelog: CHANGELOG.md
+
+ignore:
+  - tests

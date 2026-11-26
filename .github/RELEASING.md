@@ -8,6 +8,14 @@ Pushing a tag like `v1.2.0` runs `.github/workflows/release.yml`, which:
 3. creates or updates the GitHub release with that zip and those notes,
 4. uploads the same zip and notes to CurseForge, once that's configured (below).
 
+CurseForge is currently fed by its own **automatic packager** instead: a
+GitHub webhook (`https://www.curseforge.com/api/projects/{projectID}/package?token={token}`)
+makes CurseForge build its own package on every tag push, using `.pkgmeta`
+(folder name `Chronolog-Forever`, `CHANGELOG.md` as the changelog, `tests/`
+left out; dot-files are skipped automatically). Add any new non-addon path to
+its `ignore` list. Don't also set the `CF_*` secrets below, or each tag would
+be uploaded to CurseForge twice.
+
 ## Writing the changelog entry
 
 Add a section at the top of `CHANGELOG.md` **before** tagging:
